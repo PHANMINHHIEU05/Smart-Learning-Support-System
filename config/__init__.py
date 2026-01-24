@@ -1,0 +1,1 @@
+# lưu tất cả các ngưỡng và tham số ai ở đây
