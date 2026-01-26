@@ -20,3 +20,6 @@ colorlog==6.7.0
 
 # ============ PERFORMANCE ============
 tqdm==4.66.1
+
+# ============ OBJECT DETECTION ============
+ultralytics>=8.0.0
