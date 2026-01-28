@@ -77,6 +77,7 @@ class AIProcessorThread(threading.Thread):
             
             # Drowsiness detection
             ear_left, ear_right, is_drowsy = 0.0, 0.0, False
+            face_landmarks = None
             if face_results.multi_face_landmarks:
                 face_landmarks = face_results.multi_face_landmarks[0]
                 ear_left, ear_right, is_drowsy = self.drowsiness_detector.process(face_landmarks)
@@ -88,7 +89,7 @@ class AIProcessorThread(threading.Thread):
                 head_tilt, shoulder_angle, posture_score, is_bad_posture = \
                     self.posture_analyzer.process(pose_results.pose_landmarks)
             
-            # Focus score
+            # Focus score (basic - sẽ được tính lại ở main.py với đầy đủ params)
             focus_score = self.focus_calculator.calculate_focus_score(
                 ear_avg=ear_avg,
                 posture_score=posture_score,
@@ -108,6 +109,7 @@ class AIProcessorThread(threading.Thread):
                 'focus_score': focus_score,
                 'is_drowsy': is_drowsy,
                 'is_bad_posture': is_bad_posture,
+                'face_landmarks': face_landmarks,  # THÊM MỚI
                 'frame': frame
             }
         except Exception as e:
