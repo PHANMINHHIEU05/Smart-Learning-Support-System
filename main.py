@@ -132,13 +132,14 @@ class MainApplication:
         
         
         # === ADVANCED STATE DETECTION (Boredom, Dazed, Severe Distraction) ===
-        # Tối ưu: Chỉ chạy mỗi 5 frames để tăng FPS (không cần mỗi frame)
+        # Lấy head angles từ posture analyzer (cần cho cả advanced state và microsleep)
+        posture_details = ai_result.get('posture_details', {})
+        head_pitch = posture_details.get('head_pitch', 0.0)
+        head_roll = posture_details.get('head_roll', 0.0)
+        head_yaw = posture_details.get('head_yaw', 0.0)
+        
+        # Tối ưu: Chỉ chạy advanced state detection mỗi 5 frames để tăng FPS
         if self.frame_count % 5 == 0:
-            posture_details = ai_result.get('posture_details', {})
-            head_pitch = posture_details.get('head_pitch', 0.0)
-            head_roll = posture_details.get('head_roll', 0.0)
-            head_yaw = posture_details.get('head_yaw', 0.0)
-            
             advanced_states = self.advanced_state_detector.process_all_states(
                 ear_avg=ear_avg,
                 emotion=emotion,
@@ -162,6 +163,14 @@ class MainApplication:
                 'dominant_state': 'normal',
                 'warning_message': ''
             })
+        
+        # Micro-sleep detection (chạy mỗi frame vì quan trọng)
+        is_microsleep, micro_duration = self.ai_thread.drowsiness_detector.detect_microsleep(
+            ear_avg=ear_avg,
+            head_pitch=head_pitch,
+            head_yaw=head_yaw,
+            head_roll=head_roll
+        ) 
         
         # === FOCUS SCORE (chỉ tập trung vào: drowsiness, posture, gaze) ===
         focus_score = self.focus_calculator.calculate_focus_score(
@@ -192,14 +201,16 @@ class MainApplication:
             'distance_status': distance_status,
             'estimated_distance_cm': estimated_distance_cm,
             'is_too_close': is_too_close,
-            'is_too_far': is_too_far
+            'is_too_far': is_too_far,
+            'is_microsleep': is_microsleep,
+            'microsleep_duration': micro_duration
         }
     def draw_overlay(self, frame, data: dict):
         """Vẽ thông tin lên frame"""
         h, w = frame.shape[:2]
         
         # Background cho text (làm rộng thêm cho advanced states)
-        cv2.rectangle(frame, (10, 10), (420, 270), (0, 0, 0), -1)
+        cv2.rectangle(frame, (10, 10), (420, 270), (0 , 0, 0), -1)
         cv2.rectangle(frame, (10, 10), (420, 270), (255, 255, 255), 2)
         
         # Lấy focus level
@@ -255,8 +266,19 @@ class MainApplication:
         # Cảnh báo ưu tiên cao nhất: Advanced states > Drowsy > Bad posture
         advanced_states = data.get('advanced_states', {})
         warning_msg = advanced_states.get('warning_message', '')
-        
-        if warning_msg:  # Bored, Dazed, hoặc Severely Distracted
+        if data.get('is_microsleep'):
+    # Cảnh báo đỏ nhấp nháy
+            if int(time.time() * 2) % 2 == 0:  # Blink effect
+                cv2.rectangle(frame, (0, 0), (w, h), (0, 0, 255), 10)
+                cv2.putText(frame, "!!! MICRO-SLEEP DETECTED !!!",
+                        (w//2 - 200, h//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 4)
+
+                duration_sec = data.get('microsleep_duration', 0) / 30
+                cv2.putText(frame, f"Duration: {duration_sec:.1f}s",
+                        (w//2 - 100, h//2 + 50),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        elif warning_msg:  # Bored, Dazed, hoặc Severely Distracted
             cv2.putText(frame, warning_msg, (w//2 - 200, 50), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
         elif data.get('is_too_close'):  # ← THÊM: Distance warning

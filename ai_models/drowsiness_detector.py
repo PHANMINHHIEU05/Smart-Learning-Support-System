@@ -14,7 +14,7 @@ class DrowsinessDetector:
         self.consec_frames = consec_frames
         self.eye_closed_counter = 0
         self.is_drowsy = False
-        self.micro_sleep_threshold = 90
+        self.micro_threshold_frame = 90
         self.microsleep_max_frams = 300
         self.microsleep_counter = 0
         self.is_microsleep = False
@@ -41,7 +41,35 @@ class DrowsinessDetector:
         if horizontal == 0:
             return 0.0
         return vertical / horizontal
-
+   
+    def detect_microsleep(self, ear_avg: float,
+                          head_pitch: float,
+                          head_yaw: float,
+                          head_roll: float) -> Tuple[bool, int]:
+        """phát hiện microslepp qua: 
+            ear thấp kéo dài 
+            đầu cúi dần
+            không chuyyeenr động đầu
+        """     
+        eyes_closed = ear_avg < 0.18
+        self.head_pitch_history.append(head_pitch)
+        if len(self.head_pitch_history) > 30:
+            self.head_pitch_history.pop(0)
+        head_movement = 0
+        if len(self.head_pitch_history) >= 10:
+            head_movement = max(self.head_pitch_history) - min(self.head_pitch_history)
+        is_head_stable = head_movement < self.head_movememt_threshold
+        is_head_drooping = head_pitch > 15
+        if eyes_closed and is_head_stable and is_head_drooping:
+            self.microsleep_counter += 1
+        else:
+            self.microsleep_counter = 0
+            self.is_microsleep = False
+            return False, 0
+        if self.microsleep_counter >= self.micro_threshold_frame:
+            self.is_microsleep = True
+            return True, self.microsleep_counter
+        return False, 0
     def process(self, face_landmarks) -> Tuple[float, float, bool]:
         """Xử lý face landmarks và trả về (ear_left, ear_right, is_drowsy)"""
         if face_landmarks is None:
