@@ -2,10 +2,11 @@ from core.camera_thread import CameraThread
 from core.ai_processor import AIProcessorThread
 from ai_models.gaze_tracker import GazeTracker
 from ai_models.emotion_analyzer import EmotionAnalyzer
-from ai_models.phone_detector import PhoneDetector
+# from ai_models.phone_detector import PhoneDetector  # Đã tắt để tăng FPS
 from ai_models.focus_calculator import FocusCalculator
 from ai_models.calibrator import Calibrator
 from ai_models.adaptive_detector import AdaptiveDetector
+from ai_models.advanced_state_detector import AdvancedStateDetector
 from database.db_manager import DatabaseManager
 import cv2 
 import time
@@ -18,10 +19,9 @@ class MainApplication:
         self.camera_thread = CameraThread(camera_index, self.frame_queue)
         self.ai_thread = AIProcessorThread(self.frame_queue, self.result_queue)
         self.gaze_tracker = GazeTracker()
-        self.emotion_analyzer = EmotionAnalyzer(analysis_interval=30)  # Mỗi 30 frames
-        # Phone detector: giảm phone_frames vì check mỗi 3 frame
-        self.phone_detector = PhoneDetector(confidence_threshold=0.35, phone_frames=5)
+        self.emotion_analyzer = EmotionAnalyzer(analysis_interval=45)  # Tối ưu: 45 frames
         self.focus_calculator = FocusCalculator()
+        self.advanced_state_detector = AdvancedStateDetector()  # Phát hiện: boredom, dazed, severe distraction
         self.calibrator = Calibrator()
         self.db_manager = DatabaseManager()
         self.running = False
@@ -30,8 +30,16 @@ class MainApplication:
         
         # Frame counter để skip heavy operations
         self.frame_count = 0
-        self.PHONE_CHECK_INTERVAL = 2  # Check phone mỗi 2 frames (nhanh hơn)
-        self.last_phone_result = (False, 0.0, [])
+        # Phone detector ĐÃ TẮT
+        # self.PHONE_CHECK_INTERVAL = 5
+        self.EMOTION_CHECK_INTERVAL = 30  # Emotion mỗi 30 frames (1 giây)
+        # self.last_phone_result = (False, 0.0, [])
+        self.last_emotion_result = ('neutral', 0.0, None)
+        
+        # FPS tracking
+        self.fps_start_time = time.time()
+        self.fps_frame_count = 0
+        self.current_fps = 0.0
     def start(self):
         print("Starting Main Application...")
         self.camera_thread.start()
@@ -72,39 +80,97 @@ class MainApplication:
         print("✅ Calibration placeholder - cần implement đầy đủ")
 
     def process_frame(self, ai_result: dict, frame) -> dict:
-        """Xử lý frame với tất cả AI models"""
+        """Xử lý frame với tất cả AI models - TỐI ƯU PERFORMANCE"""
         self.frame_count += 1
+        
+        # === FPS CALCULATION ===
+        self.fps_frame_count += 1
+        elapsed = time.time() - self.fps_start_time
+        if elapsed >= 1.0:
+            self.current_fps = self.fps_frame_count / elapsed
+            self.fps_frame_count = 0
+            self.fps_start_time = time.time()
         
         # Lấy dữ liệu từ AI Processor
         ear_avg = ai_result.get('ear_avg', 0.25)
         posture_score = ai_result.get('posture_score', 100.0)
         face_landmarks = ai_result.get('face_landmarks', None)
         
-        # === GAZE TRACKING ===
+        # === GAZE TRACKING (nhẹ - chạy mỗi frame) ===
         if face_landmarks is not None:
             gaze_ratio, gaze_dir, is_distracted = self.gaze_tracker.process(face_landmarks)
         else:
             gaze_ratio, gaze_dir, is_distracted = 0.5, "CENTER", False
         
-        # === EMOTION ANALYSIS (mỗi 30 frames) ===
-        emotion, emotion_conf, _ = self.emotion_analyzer.analyze(frame)
-        
-        # === PHONE DETECTION (mỗi 2 frames để tăng tốc) ===
-        if self.frame_count % self.PHONE_CHECK_INTERVAL == 0:
-            # Dùng frame gốc để detection chính xác hơn
-            is_using_phone, phone_conf, phone_dets = self.phone_detector.process(frame)
-            self.last_phone_result = (is_using_phone, phone_conf, phone_dets)
+        # === EMOTION ANALYSIS (mỗi 30 frames - tối ưu) ===
+        if self.frame_count % self.EMOTION_CHECK_INTERVAL == 0:
+            # Resize frame nhỏ để emotion analysis nhanh hơn
+            small_frame = cv2.resize(frame, (224, 224))  # Nhỏ hơn = nhanh hơn
+            emotion, emotion_conf, _ = self.emotion_analyzer.analyze(small_frame)
+            self.last_emotion_result = (emotion, emotion_conf, None)
         else:
-            is_using_phone, phone_conf, phone_dets = self.last_phone_result
+            emotion, emotion_conf, _ = self.last_emotion_result
+        # === FACE DISTANCE MONITORING ===
+        # IPD càng LỚN → càng GẦN camera, IPD càng NHỎ → càng XA camera
+        face_distance_ipd = ai_result.get('face_distance_ipd', 0.15)
         
-        # === FOCUS SCORE ===
+        if face_distance_ipd > 0.2:  # IPD LỚN = GẦN
+            distance_status = "too_close"  # FIX: đổi từ "Too Far" → "too_close"
+            is_too_close = True
+            is_too_far = False
+        elif face_distance_ipd < 0.1:  # IPD NHỎ = XA
+            distance_status = "too_far"  # FIX: đổi từ "Too Close" → "too_far"
+            is_too_close = False
+            is_too_far = True
+        else:
+            distance_status = "good"
+            is_too_close = False
+            is_too_far = False
+        
+        # Ước tính khoảng cách: IPD 0.2 ≈ 35cm, 0.15 ≈ 50cm, 0.1 ≈ 75cm
+        estimated_distance_cm = int(50 / (face_distance_ipd / 0.15)) if face_distance_ipd > 0 else 50
+        
+        
+        # === ADVANCED STATE DETECTION (Boredom, Dazed, Severe Distraction) ===
+        # Tối ưu: Chỉ chạy mỗi 5 frames để tăng FPS (không cần mỗi frame)
+        if self.frame_count % 5 == 0:
+            posture_details = ai_result.get('posture_details', {})
+            head_pitch = posture_details.get('head_pitch', 0.0)
+            head_roll = posture_details.get('head_roll', 0.0)
+            head_yaw = posture_details.get('head_yaw', 0.0)
+            
+            advanced_states = self.advanced_state_detector.process_all_states(
+                ear_avg=ear_avg,
+                emotion=emotion,
+                emotion_conf=emotion_conf,
+                head_pitch=head_pitch,
+                head_roll=head_roll,
+                head_yaw=head_yaw,
+                gaze_direction=gaze_dir,
+                is_using_phone=False,  # Phone detector đã tắt
+                posture_score=posture_score
+            )
+            # Lưu kết quả để dùng cho các frame khác
+            self.last_advanced_states = advanced_states
+        else:
+            # Dùng kết quả cũ
+            advanced_states = getattr(self, 'last_advanced_states', {
+                'is_bored': False,
+                'is_dazed': False,
+                'is_severely_distracted': False,
+                'blink_rate': 0.0,
+                'dominant_state': 'normal',
+                'warning_message': ''
+            })
+        
+        # === FOCUS SCORE (chỉ tập trung vào: drowsiness, posture, gaze) ===
         focus_score = self.focus_calculator.calculate_focus_score(
             ear_avg=ear_avg,
             posture_score=posture_score,
             emotion=emotion,
             gaze_ratio=gaze_ratio,
             is_distracted=is_distracted,
-            is_using_phone=is_using_phone
+            is_using_phone=False  # Phone detector đã tắt
         )
         
         return {
@@ -114,18 +180,27 @@ class MainApplication:
             'is_distracted': is_distracted,
             'emotion': emotion,
             'emotion_confidence': round(emotion_conf, 1),
-            'is_using_phone': is_using_phone,
-            'phone_confidence': round(phone_conf, 2),
             'focus_score': focus_score,
-            'focus_level': self.focus_calculator.get_focus_level()
+            'focus_level': self.focus_calculator.get_focus_level(),
+            # Advanced states
+            'advanced_states': advanced_states,
+            'is_bored': advanced_states['is_bored'],
+            'is_dazed': advanced_states['is_dazed'],
+            'is_severely_distracted': advanced_states['is_severely_distracted'],
+            'blink_rate': advanced_states['blink_rate'],
+            'face_distance_ipd': face_distance_ipd,
+            'distance_status': distance_status,
+            'estimated_distance_cm': estimated_distance_cm,
+            'is_too_close': is_too_close,
+            'is_too_far': is_too_far
         }
     def draw_overlay(self, frame, data: dict):
         """Vẽ thông tin lên frame"""
         h, w = frame.shape[:2]
         
-        # Background cho text (làm rộng hơn)
-        cv2.rectangle(frame, (10, 10), (350, 220), (0, 0, 0), -1)
-        cv2.rectangle(frame, (10, 10), (350, 220), (255, 255, 255), 2)
+        # Background cho text (làm rộng thêm cho advanced states)
+        cv2.rectangle(frame, (10, 10), (420, 270), (0, 0, 0), -1)
+        cv2.rectangle(frame, (10, 10), (420, 270), (255, 255, 255), 2)
         
         # Lấy focus level
         focus_level = data.get('focus_level', {})
@@ -140,29 +215,66 @@ class MainApplication:
         else:
             color = (0, 0, 255)  # Đỏ
         
-        # Text thông tin
+        # Text thông tin - TẬP TRUNG, BUỒN NGỦ, TƯ THẾ
         y = 35
+        
+        # Advanced states
+        advanced_states = data.get('advanced_states', {})
+        dominant_state = advanced_states.get('dominant_state', 'normal')
+        blink_rate = advanced_states.get('blink_rate', 0.0)
+        distance_cm = data.get('estimated_distance_cm', 0)
+        distance_status = data.get('distance_status', 'unknown')
+        if distance_status == 'too_close':
+            distance_color = (0, 0, 255)
+        elif distance_status == 'too_far':
+            distance_color = (255 , 165, 0)
+        else:
+            distance_color = (0, 255, 0)
         info = [
             f"Focus: {focus_score:.1f} {emoji}",
-            f"EAR: {data.get('ear_avg', 0):.3f} {'(Drowsy!)' if data.get('is_drowsy') else ''}",
+            f"Drowsy: {'YES!' if data.get('is_drowsy') else 'NO'} (EAR: {data.get('ear_avg', 0):.3f})",
+            f"Posture: {data.get('posture_score', 0):.1f} {'(BAD!)' if data.get('is_bad_posture') else '(Good)'}",
+            f"Gaze: {data.get('gaze_direction', 'CENTER')} {'(Distracted!)' if data.get('is_distracted') else ''}",
             f"Emotion: {data.get('emotion', 'neutral')} ({data.get('emotion_confidence', 0):.0f}%)",
-            f"Gaze: {data.get('gaze_direction', 'CENTER')} ({data.get('gaze_ratio', 0.5):.2f})",
-            f"Phone: {'YES!' if data.get('is_using_phone') else 'NO'} ({data.get('phone_confidence', 0):.0f}%)",
-            f"Posture: {data.get('posture_score', 0):.1f}",
-            f"Distracted: {'YES' if data.get('is_distracted') else 'NO'}"
+            f"Blink Rate: {blink_rate:.1f} blinks/min",
+            f"State: {dominant_state.upper()}"
         ]
         
         for i, text in enumerate(info):
             # Focus score dùng màu đặc biệt
             text_color = color if i == 0 else (255, 255, 255)
+            # Dominant state màu đỏ nếu không normal
+            if i == 6 and dominant_state != 'normal':
+                text_color = (0, 0, 255)
             cv2.putText(frame, text, (20, y), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, text_color, 2)
             y += 26
+        cv2.putText(frame, f"Distance: ~{distance_cm}cm",
+           (20, y),
+           cv2.FONT_HERSHEY_SIMPLEX, 0.55, distance_color, 2)
+        # Cảnh báo ưu tiên cao nhất: Advanced states > Drowsy > Bad posture
+        advanced_states = data.get('advanced_states', {})
+        warning_msg = advanced_states.get('warning_message', '')
         
-        # Vẽ box phone nếu detected
-        if data.get('is_using_phone'):
-            cv2.putText(frame, "PHONE DETECTED!", (w//2 - 100, 50), 
+        if warning_msg:  # Bored, Dazed, hoặc Severely Distracted
+            cv2.putText(frame, warning_msg, (w//2 - 200, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
+        elif data.get('is_too_close'):  # ← THÊM: Distance warning
+            cv2.putText(frame, "TOO CLOSE TO SCREEN!", (w//2 - 180, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
+        elif data.get('is_too_far'):
+            cv2.putText(frame, "TOO FAR FROM CAMERA!", (w//2 - 180, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 165, 0), 3)
+        elif data.get('is_drowsy'):
+            cv2.putText(frame, "DROWSY WARNING!", (w//2 - 120, 50), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+        elif data.get('is_bad_posture'):
+            cv2.putText(frame, "BAD POSTURE!", (w//2 - 100, 50), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 165, 255), 3)
+        
+        # FPS display
+        cv2.putText(frame, f"FPS: {self.current_fps:.1f}", 
+                    (w - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # Phím tắt
         cv2.putText(frame, "Press 'q' to quit, 'c' to calibrate", 

@@ -14,6 +14,14 @@ class DrowsinessDetector:
         self.consec_frames = consec_frames
         self.eye_closed_counter = 0
         self.is_drowsy = False
+        self.micro_sleep_threshold = 90
+        self.microsleep_max_frams = 300
+        self.microsleep_counter = 0
+        self.is_microsleep = False
+
+        self.last_head_pitch = 0.0
+        self.head_pitch_history = [] # lưu 30 frame gần nhất 
+        self.head_movememt_threshold = 5.0
 
     @staticmethod
     def calculate_distance(p1, p2) -> float:

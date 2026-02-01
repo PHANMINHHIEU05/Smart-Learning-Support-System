@@ -45,15 +45,17 @@ class AIProcessorThread(threading.Thread):
             self.mp_face_mesh = mp.solutions.face_mesh
             self.face_mesh = self.mp_face_mesh.FaceMesh(
                 max_num_faces=1,
-                refine_landmarks=True,
+                refine_landmarks=True,  # Cần cho iris tracking
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5
             )
             
             self.mp_pose = mp.solutions.pose
             self.pose = self.mp_pose.Pose(
+                model_complexity=0,  # 0 = Lite model (nhanh nhất)
                 min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
+                min_tracking_confidence=0.5,
+                enable_segmentation=False  # Tắt segmentation để tăng tốc
             )
             
             self.drowsiness_detector = DrowsinessDetector()
@@ -68,10 +70,14 @@ class AIProcessorThread(threading.Thread):
 
     def _process_frame(self, frame) -> Optional[Dict]:
         try:
-            # Resize để tăng tốc
-            frame_small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+            # Resize nhỏ hơn để tăng tốc (320x240 đủ cho face/pose detection)
+            h, w = frame.shape[:2]
+            scale = 320 / max(h, w)
+            new_w, new_h = int(w * scale), int(h * scale)
+            frame_small = cv2.resize(frame, (new_w, new_h))
             frame_rgb = cv2.cvtColor(frame_small, cv2.COLOR_BGR2RGB)
             
+            # Chạy Face Mesh và Pose
             face_results = self.face_mesh.process(frame_rgb)
             pose_results = self.pose.process(frame_rgb)
             
@@ -83,11 +89,16 @@ class AIProcessorThread(threading.Thread):
                 ear_left, ear_right, is_drowsy = self.drowsiness_detector.process(face_landmarks)
             ear_avg = (ear_left + ear_right) / 2.0
             
-            # Posture analysis
+            # Posture analysis - truyền cả face_landmarks để tính head pitch/roll
             head_tilt, shoulder_angle, posture_score, is_bad_posture = 0.0, 0.0, 100.0, False
             if pose_results.pose_landmarks:
                 head_tilt, shoulder_angle, posture_score, is_bad_posture = \
-                    self.posture_analyzer.process(pose_results.pose_landmarks)
+                    self.posture_analyzer.process(pose_results.pose_landmarks, face_landmarks)
+            face_distance_ipd = 0.15
+            if face_landmarks is not None:
+                face_distance_ipd = self.posture_analyzer.calculate_face_distance(face_landmarks)
+            # Lấy posture details (head angles) để advanced state detector sử dụng
+            posture_details = self.posture_analyzer.get_posture_details()
             
             # Focus score (basic - sẽ được tính lại ở main.py với đầy đủ params)
             focus_score = self.focus_calculator.calculate_focus_score(
@@ -104,6 +115,8 @@ class AIProcessorThread(threading.Thread):
                 'head_tilt': round(head_tilt, 2),
                 'shoulder_angle': round(shoulder_angle, 2),
                 'posture_score': round(posture_score, 2),
+                'face_distance_ipd': round(face_distance_ipd, 3),  # FIX: đổi key thành face_distance_ipd
+                'posture_details': posture_details,  # THÊM MỚI: head_pitch, head_roll, head_yaw
                 'emotion': self.current_emotion,
                 'emotion_confidence': round(self.emotion_confidence, 2),
                 'focus_score': focus_score,

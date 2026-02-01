@@ -25,9 +25,11 @@ class CameraThread(threading.Thread):
                 print(f"❌ Không thể mở camera {self.camera_index}")
                 return False
             
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            # Giảm resolution để tăng tốc (640x480 đủ cho AI detection)
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Giảm buffer để giảm latency
             
             ret, _ = self.cap.read()
             if not ret:

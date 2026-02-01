@@ -10,7 +10,7 @@ class PhoneDetector:
     def __init__(self,
                  model_name: str = 'yolov8n.pt',
                  confidence_threshold: float = 0.35,
-                 phone_frames: int = 5):
+                 phone_frames: int = 3):
         self.model = YOLO(model_name)
         self.confidence_threshold = confidence_threshold
         self.phone_frames = phone_frames
@@ -19,10 +19,15 @@ class PhoneDetector:
         self.phone_bbox = None
         self.last_frame_height = 480
         self.debug = False  # Set True để debug
+        
+        # Optimize: set model to inference mode
+        self.model.fuse()  # Fuse layers for faster inference
 
     def detect(self, frame) -> List[Dict]:
         self.last_frame_height = frame.shape[0]
-        results = self.model(frame, verbose=False, classes=[CELL_PHONE_CLASS_ID])
+        # Thêm imgsz để resize tự động, tăng tốc inference
+        results = self.model(frame, verbose=False, classes=[CELL_PHONE_CLASS_ID], 
+                            imgsz=320, half=False)  # imgsz nhỏ = nhanh hơn
         
         detections = []
         for r in results:

@@ -6,18 +6,20 @@ class FocusCalculator:
     }
     
     def __init__(self, 
-                 w_ear: float = 0.25,
-                 w_posture: float = 0.20,
-                 w_emotion: float = 0.15,
-                 w_gaze: float = 0.20,
-                 w_phone: float = 0.20):
+                 w_ear: float = 0.30,        # Tăng: Drowsiness quan trọng
+                 w_posture: float = 0.30,    # Tăng: Posture quan trọng
+                 w_emotion: float = 0.10,    # Giảm: Emotion ít quan trọng hơn
+                 w_gaze: float = 0.30,       # Tăng: Gaze/distraction quan trọng
+                 w_phone: float = 0.0):      # Bỏ: Phone detector đã tắt
         """
+        WEIGHTS ĐÃ TỐI ƯU CHO: Tập trung, Buồn ngủ, Tư thế
+        
         Args:
-            w_ear: Weight cho EAR score (0-1)
-            w_posture: Weight cho Posture score (0-1)
-            w_emotion: Weight cho Emotion score (0-1)
-            w_gaze: Weight cho Gaze score (0-1)
-            w_phone: Weight cho Phone penalty (0-1)
+            w_ear: Weight cho EAR score (drowsiness) - 30%
+            w_posture: Weight cho Posture score - 30%
+            w_emotion: Weight cho Emotion score - 10%
+            w_gaze: Weight cho Gaze score (distraction) - 30%
+            w_phone: Weight cho Phone penalty - 0% (ĐÃ TẮT)
         """
         self.w_ear = w_ear
         self.w_posture = w_posture
