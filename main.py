@@ -211,9 +211,7 @@ class MainApplication:
         
         # Background cho text (làm rộng thêm cho advanced states)
         cv2.rectangle(frame, (10, 10), (420, 270), (0 , 0, 0), -1)
-        cv2.rectangle(frame, (10, 10), (420, 270), (255, 255, 255), 2)
-        
-        # Lấy focus level
+        cv2.rectangle(frame, (10, 10), (420, 270), (255, 255, 255), 2)        
         focus_level = data.get('focus_level', {})
         emoji = focus_level.get('emoji', '')
         

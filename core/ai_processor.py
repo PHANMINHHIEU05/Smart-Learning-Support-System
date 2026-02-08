@@ -1,8 +1,9 @@
 import cv2 
 import threading
 import time
-import mediapipe as mp
 from queue import Queue, Empty
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 from typing import Optional, Dict
 
 from ai_models.drowsiness_detector import DrowsinessDetector
@@ -37,70 +38,109 @@ class AIProcessorThread(threading.Thread):
         self.fps = 0.0
         self.frame_count = 0
         self.start_time = None
-
     def _init_models(self) -> bool:
         try:
             print("🔄 Đang khởi tạo AI models...")
-            
-            self.mp_face_mesh = mp.solutions.face_mesh
-            self.face_mesh = self.mp_face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,  # Cần cho iris tracking
-                min_detection_confidence=0.5,
+
+            # === MEDIAPIPE FACE LANDMARKER với BLENDSHAPES ===
+            base_options = python.BaseOptions(
+                model_asset_path='models/face_landmarker.task'
+            )
+
+            options = vision.FaceLandmarkerOptions(
+                base_options=base_options,
+                output_face_blendshapes=True,  # ← KEY: Bật blendshapes!
+                output_facial_transformation_matrixes=False,
+                num_faces=1,
+                min_face_detection_confidence=0.5,
+                min_face_presence_confidence=0.5,
                 min_tracking_confidence=0.5
             )
-            
+
+            self.face_landmarker = vision.FaceLandmarker.create_from_options(options)
+
+            # === MEDIAPIPE POSE (giữ nguyên) ===
+            # Import solutions cho Pose (vì Tasks API chưa có Pose)
+            import mediapipe as mp
             self.mp_pose = mp.solutions.pose
             self.pose = self.mp_pose.Pose(
-                model_complexity=0,  # 0 = Lite model (nhanh nhất)
+                model_complexity=0,
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5,
-                enable_segmentation=False  # Tắt segmentation để tăng tốc
+                enable_segmentation=False
             )
-            
             self.drowsiness_detector = DrowsinessDetector()
             self.posture_analyzer = PostureAnalyzer()
             self.focus_calculator = FocusCalculator()
-            
-            print("✅ AI models khởi tạo thành công")
+            print("✅ AI models khởi tạo thành công (với Blendshapes!)")
             return True
         except Exception as e:
             print(f"❌ Lỗi khởi tạo AI models: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def _process_frame(self, frame) -> Optional[Dict]:
         try:
-            # Resize nhỏ hơn để tăng tốc (320x240 đủ cho face/pose detection)
+            # Resize frame cho processing
             h, w = frame.shape[:2]
             scale = 320 / max(h, w)
             new_w, new_h = int(w * scale), int(h * scale)
             frame_small = cv2.resize(frame, (new_w, new_h))
+
+            # Convert BGR → RGB cho MediaPipe
             frame_rgb = cv2.cvtColor(frame_small, cv2.COLOR_BGR2RGB)
-            
-            # Chạy Face Mesh và Pose
-            face_results = self.face_mesh.process(frame_rgb)
-            pose_results = self.pose.process(frame_rgb)
-            
-            # Drowsiness detection
-            ear_left, ear_right, is_drowsy = 0.0, 0.0, False
+
+            # === FACE LANDMARKER (API mới) ===
+            # Phải convert sang MediaPipe Image format
+            mp_image = python.vision.Image(
+                image_format=python.vision.ImageFormat.SRGB,
+                data=frame_rgb
+            )
+
+            # Detect face + blendshapes
+            face_result = self.face_landmarker.detect(mp_image)
+
+            # Extract landmarks và blendshapes
             face_landmarks = None
-            if face_results.multi_face_landmarks:
-                face_landmarks = face_results.multi_face_landmarks[0]
+            blendshapes_dict = {}
+
+            if face_result.face_landmarks and len(face_result.face_landmarks) > 0:
+                # Landmarks (để tương thích với code cũ)
+                # MediaPipe Tasks trả về list, cần convert sang format cũ
+                face_landmarks = self._convert_landmarks(face_result.face_landmarks[0])
+
+                # Blendshapes
+                if face_result.face_blendshapes and len(face_result.face_blendshapes) > 0:
+                    blendshapes_list = face_result.face_blendshapes[0]
+                    # Convert thành dict: {'mouthSmileLeft': 0.8, ...}
+                    blendshapes_dict = {
+                        bs.category_name: bs.score
+                        for bs in blendshapes_list
+                    }
+
+            # === POSE DETECTION (giữ nguyên) ===
+            pose_results = self.pose.process(frame_rgb)
+
+            # === XỬ LÝ TIẾP (giữ nguyên phần drowsiness, posture...) ===
+            ear_left, ear_right, is_drowsy = 0.0, 0.0, False
+            if face_landmarks is not None:
                 ear_left, ear_right, is_drowsy = self.drowsiness_detector.process(face_landmarks)
             ear_avg = (ear_left + ear_right) / 2.0
-            
-            # Posture analysis - truyền cả face_landmarks để tính head pitch/roll
+
+            # Posture analysis
             head_tilt, shoulder_angle, posture_score, is_bad_posture = 0.0, 0.0, 100.0, False
             if pose_results.pose_landmarks:
                 head_tilt, shoulder_angle, posture_score, is_bad_posture = \
                     self.posture_analyzer.process(pose_results.pose_landmarks, face_landmarks)
+
+            # Face distance
             face_distance_ipd = 0.15
             if face_landmarks is not None:
                 face_distance_ipd = self.posture_analyzer.calculate_face_distance(face_landmarks)
-            # Lấy posture details (head angles) để advanced state detector sử dụng
+
             posture_details = self.posture_analyzer.get_posture_details()
-            
-            # Focus score (basic - sẽ được tính lại ở main.py với đầy đủ params)
+
             focus_score = self.focus_calculator.calculate_focus_score(
                 ear_avg=ear_avg,
                 posture_score=posture_score,
@@ -115,19 +155,36 @@ class AIProcessorThread(threading.Thread):
                 'head_tilt': round(head_tilt, 2),
                 'shoulder_angle': round(shoulder_angle, 2),
                 'posture_score': round(posture_score, 2),
-                'face_distance_ipd': round(face_distance_ipd, 3),  # FIX: đổi key thành face_distance_ipd
-                'posture_details': posture_details,  # THÊM MỚI: head_pitch, head_roll, head_yaw
+                'face_distance_ipd': round(face_distance_ipd, 3),
+                'posture_details': posture_details,
                 'emotion': self.current_emotion,
                 'emotion_confidence': round(self.emotion_confidence, 2),
                 'focus_score': focus_score,
                 'is_drowsy': is_drowsy,
                 'is_bad_posture': is_bad_posture,
-                'face_landmarks': face_landmarks,  # THÊM MỚI
+                'face_landmarks': face_landmarks,
+                'blendshapes': blendshapes_dict,  # ← THÊM MỚI
                 'frame': frame
             }
         except Exception as e:
             print(f"❌ Lỗi xử lý frame: {e}")
-            return None
+            import traceback
+            traceback.print_exc()
+            return None 
+    def _convert_landmarks(self, new_landmarks) :
+        class LandmarkList:
+            def __init__(self, landmarks):
+                self.landmark = landmarks
+        class Landmark:
+            def __init__(self, x, y, z):
+                self.x = x
+                self.y = y
+                self.z = z
+        converted = [
+            Landmark(lm.x, lm.y, lm.z)
+            for lm in new_landmarks
+        ]
+        return LandmarkList(converted)
 
     def run(self):
         if not self._init_models():
