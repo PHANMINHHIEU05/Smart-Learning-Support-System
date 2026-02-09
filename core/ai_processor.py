@@ -2,6 +2,7 @@ import cv2
 import threading
 import time
 from queue import Queue, Empty
+import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from typing import Optional, Dict
@@ -21,10 +22,8 @@ class AIProcessorThread(threading.Thread):
         self.result_queue = result_queue
 
         self.running = False
-        self.mp_face_mesh = None
-        self.mp_pose = None
-        self.face_mesh = None
-        self.pose = None
+        self.face_landmarker = None
+        self.pose_landmarker = None
 
         self.drowsiness_detector = None
         self.posture_analyzer = None
@@ -43,12 +42,12 @@ class AIProcessorThread(threading.Thread):
             print("🔄 Đang khởi tạo AI models...")
 
             # === MEDIAPIPE FACE LANDMARKER với BLENDSHAPES ===
-            base_options = python.BaseOptions(
+            face_base_options = python.BaseOptions(
                 model_asset_path='models/face_landmarker.task'
             )
 
-            options = vision.FaceLandmarkerOptions(
-                base_options=base_options,
+            face_options = vision.FaceLandmarkerOptions(
+                base_options=face_base_options,
                 output_face_blendshapes=True,  # ← KEY: Bật blendshapes!
                 output_facial_transformation_matrixes=False,
                 num_faces=1,
@@ -57,18 +56,22 @@ class AIProcessorThread(threading.Thread):
                 min_tracking_confidence=0.5
             )
 
-            self.face_landmarker = vision.FaceLandmarker.create_from_options(options)
+            self.face_landmarker = vision.FaceLandmarker.create_from_options(face_options)
 
-            # === MEDIAPIPE POSE (giữ nguyên) ===
-            # Import solutions cho Pose (vì Tasks API chưa có Pose)
-            import mediapipe as mp
-            self.mp_pose = mp.solutions.pose
-            self.pose = self.mp_pose.Pose(
-                model_complexity=0,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5,
-                enable_segmentation=False
+            # === MEDIAPIPE POSE LANDMARKER (Tasks API) ===
+            pose_base_options = python.BaseOptions(
+                model_asset_path='models/pose_landmarker_lite.task'
             )
+
+            pose_options = vision.PoseLandmarkerOptions(
+                base_options=pose_base_options,
+                running_mode=vision.RunningMode.IMAGE,
+                min_pose_detection_confidence=0.5,
+                min_pose_presence_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+
+            self.pose_landmarker = vision.PoseLandmarker.create_from_options(pose_options)
             self.drowsiness_detector = DrowsinessDetector()
             self.posture_analyzer = PostureAnalyzer()
             self.focus_calculator = FocusCalculator()
@@ -93,8 +96,8 @@ class AIProcessorThread(threading.Thread):
 
             # === FACE LANDMARKER (API mới) ===
             # Phải convert sang MediaPipe Image format
-            mp_image = python.vision.Image(
-                image_format=python.vision.ImageFormat.SRGB,
+            mp_image = mp.Image(
+                image_format=mp.ImageFormat.SRGB,
                 data=frame_rgb
             )
 
@@ -119,8 +122,13 @@ class AIProcessorThread(threading.Thread):
                         for bs in blendshapes_list
                     }
 
-            # === POSE DETECTION (giữ nguyên) ===
-            pose_results = self.pose.process(frame_rgb)
+            # === POSE DETECTION (Tasks API) ===
+            pose_result = self.pose_landmarker.detect(mp_image)
+            
+            # Convert pose landmarks sang format cũ để tương thích
+            pose_landmarks = None
+            if pose_result.pose_landmarks and len(pose_result.pose_landmarks) > 0:
+                pose_landmarks = self._convert_landmarks(pose_result.pose_landmarks[0])
 
             # === XỬ LÝ TIẾP (giữ nguyên phần drowsiness, posture...) ===
             ear_left, ear_right, is_drowsy = 0.0, 0.0, False
@@ -130,9 +138,9 @@ class AIProcessorThread(threading.Thread):
 
             # Posture analysis
             head_tilt, shoulder_angle, posture_score, is_bad_posture = 0.0, 0.0, 100.0, False
-            if pose_results.pose_landmarks:
+            if pose_landmarks:
                 head_tilt, shoulder_angle, posture_score, is_bad_posture = \
-                    self.posture_analyzer.process(pose_results.pose_landmarks, face_landmarks)
+                    self.posture_analyzer.process(pose_landmarks, face_landmarks)
 
             # Face distance
             face_distance_ipd = 0.15
@@ -222,10 +230,10 @@ class AIProcessorThread(threading.Thread):
         self.running = False
 
     def _cleanup(self):
-        if self.face_mesh:
-            self.face_mesh.close()
-        if self.pose:
-            self.pose.close()
+        if self.face_landmarker:
+            self.face_landmarker.close()
+        if self.pose_landmarker:
+            self.pose_landmarker.close()
 
     def get_fps(self) -> float:
         return self.fps

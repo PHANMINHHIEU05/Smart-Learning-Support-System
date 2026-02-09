@@ -1,6 +1,5 @@
 import math 
 from typing import Tuple
-import mediapipe as mp
 
 
 class FaceMeshLandmarks:
@@ -14,6 +13,43 @@ class FaceMeshLandmarks:
     CHIN = 152
     LEFT_CHEEK = 234
     RIGHT_CHEEK = 454
+
+
+class PoseLandmark:
+    """Constants cho MediaPipe Pose landmarks"""
+    NOSE = 0
+    LEFT_EYE_INNER = 1
+    LEFT_EYE = 2
+    LEFT_EYE_OUTER = 3
+    RIGHT_EYE_INNER = 4
+    RIGHT_EYE = 5
+    RIGHT_EYE_OUTER = 6
+    LEFT_EAR = 7
+    RIGHT_EAR = 8
+    MOUTH_LEFT = 9
+    MOUTH_RIGHT = 10
+    LEFT_SHOULDER = 11
+    RIGHT_SHOULDER = 12
+    LEFT_ELBOW = 13
+    RIGHT_ELBOW = 14
+    LEFT_WRIST = 15
+    RIGHT_WRIST = 16
+    LEFT_PINKY = 17
+    RIGHT_PINKY = 18
+    LEFT_INDEX = 19
+    RIGHT_INDEX = 20
+    LEFT_THUMB = 21
+    RIGHT_THUMB = 22
+    LEFT_HIP = 23
+    RIGHT_HIP = 24
+    LEFT_KNEE = 25
+    RIGHT_KNEE = 26
+    LEFT_ANKLE = 27
+    RIGHT_ANKLE = 28
+    LEFT_HEEL = 29
+    RIGHT_HEEL = 30
+    LEFT_FOOT_INDEX = 31
+    RIGHT_FOOT_INDEX = 32
 
 
 class PostureAnalyzer:
@@ -44,7 +80,6 @@ class PostureAnalyzer:
         
         self.bad_posture_counter = 0
         self.is_bad_posture = False
-        self.mp_pose = mp.solutions.pose
         
         # Lưu metrics gần nhất
         self.last_neck_score = 75.0
@@ -69,9 +104,9 @@ class PostureAnalyzer:
 
     def calculate_head_tilt(self, landmarks) -> float:
         """Tính góc nghiêng đầu từ Pose landmarks"""
-        nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
-        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
-        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        nose = landmarks[PoseLandmark.NOSE]
+        left_shoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
         
         mid_shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
         vertical_diff = abs(nose.y - mid_shoulder_y)
@@ -82,8 +117,8 @@ class PostureAnalyzer:
 
     def calculate_shoulder_angle(self, landmarks) -> float:
         """Tính góc nghiêng vai"""
-        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
-        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        left_shoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
         
         dx = right_shoulder.x - left_shoulder.x
         dy = right_shoulder.y - left_shoulder.y
@@ -103,9 +138,9 @@ class PostureAnalyzer:
             - 50 = Cúi nhẹ
             - 0 = Cúi nhiều
         """
-        nose = landmarks[self.mp_pose.PoseLandmark.NOSE.value]
-        left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER.value]
-        right_shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
+        nose = landmarks[PoseLandmark.NOSE]
+        left_shoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
+        right_shoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
         
         # Trung điểm vai
         mid_shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
