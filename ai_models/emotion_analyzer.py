@@ -1,5 +1,4 @@
 from typing import Tuple, Optional, Dict
-from deepface import DeepFace
 import time
 
 EMOTION_SCORES = {
@@ -31,15 +30,24 @@ class EmotionAnalyzer:
         self.emotion_scores: Dict[str, float] = {}
         self.frame_counter: int = 0
         self.last_analysis_time: float = 0.0
+        self._deepface_cls = None
 
     def should_analyze(self) -> bool:
         """Kiểm tra có nên phân tích frame này không"""
         self.frame_counter += 1
         return self.frame_counter % self.analysis_interval == 0
 
+    def _get_deepface(self):
+        """Lazy import để tránh load TensorFlow khi không dùng emotion."""
+        if self._deepface_cls is None:
+            from deepface import DeepFace
+            self._deepface_cls = DeepFace
+        return self._deepface_cls
+
     def _analyze_with_deepface(self, frame) -> Optional[Dict]:
         try:
-            result = DeepFace.analyze(
+            deepface = self._get_deepface()
+            result = deepface.analyze(
                 img_path=frame,
                 actions=['emotion'],
                 enforce_detection=False,

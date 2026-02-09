@@ -1,28 +1,29 @@
 from core.camera_thread import CameraThread
 from core.ai_processor import AIProcessorThread
 from ai_models.gaze_tracker import GazeTracker
-from ai_models.emotion_analyzer import EmotionAnalyzer
 # from ai_models.phone_detector import PhoneDetector  # Đã tắt để tăng FPS
 from ai_models.focus_calculator import FocusCalculator
 from ai_models.calibrator import Calibrator
 from ai_models.adaptive_detector import AdaptiveDetector
 from ai_models.advanced_state_detector import AdvancedStateDetector
+# from ai_models.blendshape_emotion_mapper import BlendshapeEmotionMapper  # Đã TẮT phân tích cảm xúc
 from database.db_manager import DatabaseManager
+from config import performance_config as perf
 import cv2 
 import time
 from queue import Queue, Empty
 
 class MainApplication:
     def __init__(self, camera_index: int = 0):
-        self.frame_queue = Queue(maxsize=2)
-        self.result_queue = Queue(maxsize=2)
+        self.frame_queue = Queue(maxsize=perf.FRAME_QUEUE_SIZE)
+        self.result_queue = Queue(maxsize=perf.RESULT_QUEUE_SIZE)
         self.camera_thread = CameraThread(camera_index, self.frame_queue)
         self.ai_thread = AIProcessorThread(self.frame_queue, self.result_queue)
         self.gaze_tracker = GazeTracker()
-        self.emotion_analyzer = EmotionAnalyzer(analysis_interval=45)  # Tối ưu: 45 frames
         self.focus_calculator = FocusCalculator()
         self.advanced_state_detector = AdvancedStateDetector()  # Phát hiện: boredom, dazed, severe distraction
         self.calibrator = Calibrator()
+        # self.blendshape_mapper = BlendshapeEmotionMapper()  # ← ĐÃ TẮT phân tích cảm xúc
         self.db_manager = DatabaseManager()
         self.running = False
         self.is_calibrated = False
@@ -32,9 +33,18 @@ class MainApplication:
         self.frame_count = 0
         # Phone detector ĐÃ TẮT
         # self.PHONE_CHECK_INTERVAL = 5
-        self.EMOTION_CHECK_INTERVAL = 30  # Emotion mỗi 30 frames (1 giây)
+        self.ADVANCED_STATE_INTERVAL = perf.ADVANCED_STATE_INTERVAL  # Dùng config
+        self.enable_advanced_states = perf.ENABLE_ADVANCED_STATES
+        self.enable_microsleep = perf.ENABLE_MICROSLEEP
         # self.last_phone_result = (False, 0.0, [])
-        self.last_emotion_result = ('neutral', 0.0, None)
+        self.last_advanced_states = {
+            'is_bored': False,
+            'is_dazed': False,
+            'is_severely_distracted': False,
+            'blink_rate': 0.0,
+            'dominant_state': 'normal',
+            'warning_message': ''
+        }
         
         # FPS tracking
         self.fps_start_time = time.time()
@@ -53,17 +63,44 @@ class MainApplication:
         cv2.destroyAllWindows()
     def run(self):
         self.start()
+        
+        last_ai_result = None
+        frame_interval = 1.0 / perf.DISPLAY_FPS_LIMIT  # Giới hạn FPS hiển thị
+        last_frame_time = 0
+        
         while self.running:
-            try:
-                result = self.result_queue.get(timeout=0.1)
-                frame = result['frame']
-                processed = self.process_frame(result, frame)
-                display_frame = self.draw_overlay(frame, processed)
-                cv2.imshow("Smart Learning Support System", display_frame)
-            except Empty:
-                pass
+            now = time.time()
             
-            # Xử lý phím bấm (luôn chạy)
+            # Giới hạn FPS hiển thị để không ăn CPU vô ích
+            if now - last_frame_time < frame_interval:
+                time.sleep(0.001)
+                continue
+            last_frame_time = now
+            
+            # === 1. LẤY FRAME MỚI NHẤT TỪ CAMERA (luôn có, không block) ===
+            frame = self.camera_thread.get_latest_frame()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            
+            # === 2. LẤY AI RESULT MỚI NHẤT (không block, dùng cái cũ nếu chưa có mới) ===
+            ai_result = self.ai_thread.get_latest_result()
+            if ai_result is not None:
+                last_ai_result = ai_result
+            
+            # === 3. XỬ LÝ & HIỂN THỊ (luôn chạy ở tốc độ camera) ===
+            if last_ai_result is not None:
+                processed = self.process_frame(last_ai_result, frame)
+                display_frame = self.draw_overlay(frame, processed)
+            else:
+                # Chưa có AI result → hiển thị frame gốc + "Loading..."
+                display_frame = frame.copy()
+                cv2.putText(display_frame, "Loading AI...", (20, 40),
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+            
+            cv2.imshow("Smart Learning Support System", display_frame)
+            
+            # Xử lý phím bấm
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
@@ -102,14 +139,9 @@ class MainApplication:
         else:
             gaze_ratio, gaze_dir, is_distracted = 0.5, "CENTER", False
         
-        # === EMOTION ANALYSIS (mỗi 30 frames - tối ưu) ===
-        if self.frame_count % self.EMOTION_CHECK_INTERVAL == 0:
-            # Resize frame nhỏ để emotion analysis nhanh hơn
-            small_frame = cv2.resize(frame, (224, 224))  # Nhỏ hơn = nhanh hơn
-            emotion, emotion_conf, _ = self.emotion_analyzer.analyze(small_frame)
-            self.last_emotion_result = (emotion, emotion_conf, None)
-        else:
-            emotion, emotion_conf, _ = self.last_emotion_result
+        # === EMOTION DETECTION - ĐÃ TẮT ===
+        # Không phân tích cảm xúc, luôn trả về neutral để giữ compatibility với code
+        emotion, emotion_conf = 'neutral', 0.0
         # === FACE DISTANCE MONITORING ===
         # IPD càng LỚN → càng GẦN camera, IPD càng NHỎ → càng XA camera
         face_distance_ipd = ai_result.get('face_distance_ipd', 0.15)
@@ -138,39 +170,45 @@ class MainApplication:
         head_roll = posture_details.get('head_roll', 0.0)
         head_yaw = posture_details.get('head_yaw', 0.0)
         
-        # Tối ưu: Chỉ chạy advanced state detection mỗi 5 frames để tăng FPS
-        if self.frame_count % 5 == 0:
-            advanced_states = self.advanced_state_detector.process_all_states(
-                ear_avg=ear_avg,
-                emotion=emotion,
-                emotion_conf=emotion_conf,
-                head_pitch=head_pitch,
-                head_roll=head_roll,
-                head_yaw=head_yaw,
-                gaze_direction=gaze_dir,
-                is_using_phone=False,  # Phone detector đã tắt
-                posture_score=posture_score
-            )
-            # Lưu kết quả để dùng cho các frame khác
-            self.last_advanced_states = advanced_states
+        # Tối ưu: Chỉ chạy advanced state detection khi bật feature
+        if self.enable_advanced_states:
+            if self.frame_count % self.ADVANCED_STATE_INTERVAL == 0:
+                advanced_states = self.advanced_state_detector.process_all_states(
+                    ear_avg=ear_avg,
+                    emotion=emotion,
+                    emotion_conf=emotion_conf,
+                    head_pitch=head_pitch,
+                    head_roll=head_roll,
+                    head_yaw=head_yaw,
+                    gaze_direction=gaze_dir,
+                    is_using_phone=False,  # Phone detector đã tắt
+                    posture_score=posture_score
+                )
+                # Lưu kết quả để dùng cho các frame khác
+                self.last_advanced_states = advanced_states
+            else:
+                # Dùng kết quả cũ
+                advanced_states = self.last_advanced_states
         else:
-            # Dùng kết quả cũ
-            advanced_states = getattr(self, 'last_advanced_states', {
+            advanced_states = {
                 'is_bored': False,
                 'is_dazed': False,
                 'is_severely_distracted': False,
                 'blink_rate': 0.0,
                 'dominant_state': 'normal',
                 'warning_message': ''
-            })
+            }
         
-        # Micro-sleep detection (chạy mỗi frame vì quan trọng)
-        is_microsleep, micro_duration = self.ai_thread.drowsiness_detector.detect_microsleep(
-            ear_avg=ear_avg,
-            head_pitch=head_pitch,
-            head_yaw=head_yaw,
-            head_roll=head_roll
-        ) 
+        # Micro-sleep detection
+        if self.enable_microsleep and self.ai_thread.drowsiness_detector is not None:
+            is_microsleep, micro_duration = self.ai_thread.drowsiness_detector.detect_microsleep(
+                ear_avg=ear_avg,
+                head_pitch=head_pitch,
+                head_yaw=head_yaw,
+                head_roll=head_roll
+            )
+        else:
+            is_microsleep, micro_duration = False, 0
         
         # === FOCUS SCORE (chỉ tập trung vào: drowsiness, posture, gaze) ===
         focus_score = self.focus_calculator.calculate_focus_score(
@@ -244,7 +282,7 @@ class MainApplication:
             f"Drowsy: {'YES!' if data.get('is_drowsy') else 'NO'} (EAR: {data.get('ear_avg', 0):.3f})",
             f"Posture: {data.get('posture_score', 0):.1f} {'(BAD!)' if data.get('is_bad_posture') else '(Good)'}",
             f"Gaze: {data.get('gaze_direction', 'CENTER')} {'(Distracted!)' if data.get('is_distracted') else ''}",
-            f"Emotion: {data.get('emotion', 'neutral')} ({data.get('emotion_confidence', 0):.0f}%)",
+            # f"Emotion: {data.get('emotion', 'neutral')} ({data.get('emotion_confidence', 0):.0f}%)",  # ĐÃ TẮT
             f"Blink Rate: {blink_rate:.1f} blinks/min",
             f"State: {dominant_state.upper()}"
         ]
@@ -292,9 +330,11 @@ class MainApplication:
             cv2.putText(frame, "BAD POSTURE!", (w//2 - 100, 50), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 165, 255), 3)
         
-        # FPS display
-        cv2.putText(frame, f"FPS: {self.current_fps:.1f}", 
-                    (w - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # FPS display: Main / Camera / AI
+        camera_fps = self.camera_thread.get_fps()
+        ai_fps = self.ai_thread.get_fps()
+        cv2.putText(frame, f"FPS M/C/A: {self.current_fps:.1f}/{camera_fps:.1f}/{ai_fps:.1f}",
+                    (w - 300, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
         # Phím tắt
         cv2.putText(frame, "Press 'q' to quit, 'c' to calibrate", 
