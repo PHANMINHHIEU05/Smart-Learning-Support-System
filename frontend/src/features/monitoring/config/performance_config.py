@@ -9,13 +9,21 @@ CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
 CAMERA_BUFFER_SIZE = 1  # Giảm buffer để giảm latency
 
-# Camera exposure settings
-# Auto-exposure thường chọn shutter chậm → FPS thấp (5 FPS)
-# Manual exposure giữ FPS cao (~15 FPS) + tăng exposure value để sáng hơn
-CAMERA_MANUAL_EXPOSURE = True       # True = manual exposure (giữ FPS), False = auto (lag)
-CAMERA_EXPOSURE_VALUE = 225     # Giá trị exposure (50-300, cao = sáng hơn)
-CAMERA_BRIGHTNESS = 160           # Brightness (0-255, mặc định 128)
-CAMERA_GAIN = 40                  # Gain để tăng độ sáng (0-100)
+# Camera hardware exposure settings
+# Default của webcam này: brightness=128, contrast=32, saturation=64, exposure=156 (max=1250)
+CAMERA_MANUAL_EXPOSURE = True       # True = manual (giữ FPS ~15), False = auto (5 FPS)
+CAMERA_EXPOSURE_VALUE = 220         # Tăng nhẹ so với default 156 → sáng hơn, tự nhiên
+CAMERA_BRIGHTNESS = 135             # Chỉ tăng nhẹ so với default 128
+CAMERA_GAIN = 0                     # Không gain = không nhiễu
+
+# Camera SOFTWARE image enhancement
+CAMERA_ENHANCE_IMAGE = True
+CAMERA_GAMMA = 1.3                  # Làm sáng vùng tối (shadow) theo cách tự nhiên
+CAMERA_CONTRAST = 1.0               # Giữ nguyên
+CAMERA_BRIGHTNESS_BOOST = 8         # Tăng nhẹ để bù shadow
+CAMERA_SATURATION = 1.1             # Màu sắc tươi hơn nhẹ, tránh nhợt nhạt
+CAMERA_SHARPEN = False              # Tắt sharpen - tránh nhiễu hạt
+CAMERA_CLAHE = True                 # CLAHE giúp đồng đều ánh sáng trên khuôn mặt
 
 # ============ PROCESSING SETTINGS ============
 # Resolution để xử lý AI (nhỏ hơn camera resolution)

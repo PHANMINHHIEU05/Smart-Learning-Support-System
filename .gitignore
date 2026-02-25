@@ -36,8 +36,8 @@ env/
 *.db
 *.sqlite
 *.sqlite3
-data/*.db
-data/*.json
+backend/data/*.db
+backend/data/*.json
 
 # Logs
 *.log
@@ -54,4 +54,10 @@ Thumbs.db
 *.pb
 
 # Data files
-data/user_profile.json
+backend/data/user_profile.json
+
+# Frontend
+frontend/node_modules/
+frontend/.env
+frontend/dist/
+frontend/build/
