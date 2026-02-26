@@ -1,0 +1,151 @@
+// dbdiagram.io (DBML) - MVP (gọn) cho Time Management + Study Sessions + AI Monitoring
+// 6 bảng core + 2 bảng optional (alert_rules, alerts)
+
+Table users {
+  user_id uuid [pk]
+  email varchar [unique]
+  password_hash varchar
+  display_name varchar
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Table user_settings {
+  user_id uuid [pk, ref: > users.user_id]
+  timezone varchar [note: "e.g. Asia/Bangkok"]
+  daily_goal_minutes int
+
+  pomodoro_focus_minutes int
+  pomodoro_break_minutes int
+  pomodoro_long_break_minutes int
+  pomodoro_cycles_before_long_break int
+
+  ai_monitoring_enabled boolean
+  retention_days int
+
+  updated_at timestamptz
+}
+
+Table tasks {
+  task_id uuid [pk]
+  user_id uuid [ref: > users.user_id]
+
+  title varchar
+  description text
+  status varchar [note: "todo/doing/done/archived"]
+  priority int
+  due_at timestamptz
+  estimated_minutes int
+
+  // MVP: để subject/tag dạng text/json cho nhanh, sau này chuẩn hoá thành bảng riêng
+  subject_name varchar
+  tags_json json
+
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    (user_id, status)
+    (user_id, due_at)
+  }
+}
+
+Table study_sessions {
+  session_id uuid [pk]
+  user_id uuid [ref: > users.user_id]
+  task_id uuid [ref: > tasks.task_id, null]
+
+  planned_mode varchar [note: "pomodoro/free"]
+  started_at timestamptz
+  ended_at timestamptz
+  end_reason varchar [note: "completed/stopped/timeout/error"]
+
+  notes text
+  created_at timestamptz
+
+  indexes {
+    (user_id, started_at)
+    (task_id, started_at)
+  }
+}
+
+Table session_blocks {
+  block_id uuid [pk]
+  session_id uuid [ref: > study_sessions.session_id]
+
+  block_type varchar [note: "focus/break/long_break"]
+  start_at timestamptz
+  end_at timestamptz
+
+  indexes {
+    (session_id, start_at)
+  }
+}
+
+Table ai_events {
+  event_id uuid [pk]
+  user_id uuid [ref: > users.user_id]
+  session_id uuid [ref: > study_sessions.session_id, null]
+
+  // MVP: event_type dạng string/enum (không tách ai_event_types)
+  event_type varchar [note: "POSTURE_SLOUCH, POSTURE_TOO_CLOSE, FOCUS_OFFSCREEN, DISTRACTION_PHONE, ABSENT_AWAY, FATIGUE_YAWN, ..."]
+
+  start_at timestamptz
+  end_at timestamptz
+  confidence float
+  severity int
+
+  // payload_json gói các thông số: distance_cm, angle_deg, phone_bbox, gaze_score, model_version...
+  payload_json json
+
+  indexes {
+    (user_id, start_at)
+    (session_id, start_at)
+    (event_type, start_at)
+  }
+}
+
+// OPTIONAL: nếu bạn muốn user tự cấu hình luật cảnh báo
+Table alert_rules {
+  rule_id uuid [pk]
+  user_id uuid [ref: > users.user_id]
+
+  name varchar
+  is_enabled boolean
+
+  trigger_event_type varchar
+  cooldown_seconds int
+
+  // ví dụ: {"minDurationSec": 5, "minConfidence": 0.6}
+  condition_json json
+
+  // ví dụ: {"toast": true, "sound": "beep", "pauseSession": false}
+  action_json json
+
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    (user_id, is_enabled)
+    (trigger_event_type)
+  }
+}
+
+// OPTIONAL: log cảnh báo đã bắn (để analytics/debug)
+Table alerts {
+  alert_id uuid [pk]
+  user_id uuid [ref: > users.user_id]
+  session_id uuid [ref: > study_sessions.session_id, null]
+  rule_id uuid [ref: > alert_rules.rule_id, null]
+  event_id uuid [ref: > ai_events.event_id, null]
+
+  fired_at timestamptz
+  channel varchar [note: "toast/sound/..."]
+  message varchar
+  payload_json json
+
+  indexes {
+    (user_id, fired_at)
+    (session_id, fired_at)
+  }
+}
