@@ -56,8 +56,15 @@ Thumbs.db
 # Data files
 backend/data/user_profile.json
 
+# Backend
+backend/.env
+backend/venv/
+
 # Frontend
 frontend/node_modules/
 frontend/.env
 frontend/dist/
 frontend/build/
+.aidlc-rule-details/
+.copilot/
+aidlc-docs/
