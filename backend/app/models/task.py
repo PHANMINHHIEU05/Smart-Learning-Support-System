@@ -12,7 +12,6 @@ from app.models.base import Base
 
 class Task(Base):
     __tablename__ = "tasks"
-
     task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
