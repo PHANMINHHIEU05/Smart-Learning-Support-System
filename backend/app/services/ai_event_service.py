@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_event import AiEvent
 from app.schemas.ai_event import AiEventBatchCreate, AiEventCreate
+
+logger = logging.getLogger("app.ai_event_service")
 
 
 async def create_event(
@@ -28,8 +31,12 @@ async def create_event(
     await db.flush()
 
     # Trigger alert evaluation (import ở đây để tránh circular import)
-    from app.services.alert_service import evaluate_rules_for_event
-    await evaluate_rules_for_event(db, user_id, event)
+    # Isolated: evaluation failure must NOT fail the event save
+    try:
+        from app.services.alert_service import evaluate_rules_for_event
+        await evaluate_rules_for_event(db, user_id, event)
+    except Exception:
+        logger.warning("Alert evaluation failed for event %s", event.event_id, exc_info=True)
 
     return event
 
@@ -56,9 +63,13 @@ async def create_events_batch(
     await db.flush()
 
     # Evaluate rules for each event
+    # Isolated: evaluation failure must NOT fail the batch event save
     from app.services.alert_service import evaluate_rules_for_event
     for event in events:
-        await evaluate_rules_for_event(db, user_id, event)
+        try:
+            await evaluate_rules_for_event(db, user_id, event)
+        except Exception:
+            logger.warning("Alert evaluation failed for event %s", event.event_id, exc_info=True)
 
     return events
 

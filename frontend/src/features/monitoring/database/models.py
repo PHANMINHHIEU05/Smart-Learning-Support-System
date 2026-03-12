@@ -48,3 +48,20 @@ INSERT INTO study_sessions (
 ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
 """
 
+CREATE_TABLE_PENDING_EVENTS = """
+CREATE TABLE IF NOT EXISTS pending_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    synced INTEGER DEFAULT 0
+)
+"""
+
+INSERT_PENDING_EVENT = """
+INSERT INTO pending_events (event_json, created_at) VALUES (?, datetime('now'))
+"""
+
+CREATE_INDEX_PENDING_SYNCED = (
+    "CREATE INDEX IF NOT EXISTS idx_pending_synced ON pending_events(synced);"
+)
+

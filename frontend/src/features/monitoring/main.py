@@ -9,8 +9,14 @@ from ai_models.advanced_state_detector import AdvancedStateDetector
 # from ai_models.blendshape_emotion_mapper import BlendshapeEmotionMapper  # Đã TẮT phân tích cảm xúc
 from database.db_manager import DatabaseManager
 from config import performance_config as perf
+from config.settings import settings as monitoring_settings
+from backend_client import BackendClient
+from event_sync_service import EventSyncService
 import cv2 
 import time
+import uuid
+import json
+from datetime import datetime, timezone
 from queue import Queue, Empty
 
 class MainApplication:
@@ -50,6 +56,19 @@ class MainApplication:
         self.fps_start_time = time.time()
         self.fps_frame_count = 0
         self.current_fps = 0.0
+
+        # Backend sync
+        self.session_id = str(uuid.uuid4())
+        _backend_client = BackendClient(
+            base_url=monitoring_settings.API_BASE_URL,
+            jwt_token=monitoring_settings.JWT_TOKEN,
+        )
+        self.sync_service = EventSyncService(
+            client=_backend_client,
+            db_manager=self.db_manager,
+            settings=monitoring_settings,
+        )
+        self.sync_service.start()
     def start(self):
         print("Starting Main Application...")
         self.camera_thread.start()
@@ -60,6 +79,7 @@ class MainApplication:
         self.running = False
         self.camera_thread.stop()
         self.ai_thread.stop()
+        self.sync_service.stop()
         cv2.destroyAllWindows()
     def run(self):
         self.start()
@@ -220,7 +240,7 @@ class MainApplication:
             is_using_phone=False  # Phone detector đã tắt
         )
         
-        return {
+        processed_result = {
             **ai_result,
             'gaze_ratio': round(gaze_ratio, 3),
             'gaze_direction': gaze_dir,
@@ -243,6 +263,38 @@ class MainApplication:
             'is_microsleep': is_microsleep,
             'microsleep_duration': micro_duration
         }
+
+        # Enqueue event for backend sync.
+        # Only enqueue alert-worthy states or a periodic focus update (~1/sec at 30fps).
+        is_drowsy_flag = ai_result.get('is_drowsy', False)
+        is_bad_posture_flag = ai_result.get('is_bad_posture', False)
+        if is_drowsy_flag or is_bad_posture_flag or is_distracted or (self.frame_count % 30 == 0):
+            if is_drowsy_flag:
+                event_type = 'drowsiness'
+            elif is_bad_posture_flag:
+                event_type = 'bad_posture'
+            elif is_distracted:
+                event_type = 'distraction'
+            else:
+                event_type = 'focus_update'
+            now_iso = datetime.now(timezone.utc).isoformat()
+            self.sync_service.enqueue({
+                'event_type': event_type,
+                'start_at': now_iso,
+                'end_at': now_iso,
+                'confidence': round(focus_score / 100.0, 3),
+                'session_id': self.session_id,
+                'payload_json': json.dumps({
+                    'focus_score': focus_score,
+                    'ear_avg': ear_avg,
+                    'posture_score': posture_score,
+                    'is_distracted': is_distracted,
+                    'distance_status': distance_status,
+                }),
+            })
+
+        return processed_result
+
     def draw_overlay(self, frame, data: dict):
         """Vẽ thông tin lên frame"""
         h, w = frame.shape[:2]

@@ -1,7 +1,14 @@
 import sqlite3
 import os
 from typing import List, Tuple, Optional
-from database.models import CREATE_TABLE_SESSIONS, CREATE_INDEXES, INSERT_SESSION
+from database.models import (
+    CREATE_TABLE_SESSIONS,
+    CREATE_INDEXES,
+    INSERT_SESSION,
+    CREATE_TABLE_PENDING_EVENTS,
+    INSERT_PENDING_EVENT,
+    CREATE_INDEX_PENDING_SYNCED,
+)
 
 
 class DatabaseManager:
@@ -32,6 +39,8 @@ class DatabaseManager:
             self.cursor.execute(CREATE_TABLE_SESSIONS)
             for idx in CREATE_INDEXES:
                 self.cursor.execute(idx)
+            self.cursor.execute(CREATE_TABLE_PENDING_EVENTS)
+            self.cursor.execute(CREATE_INDEX_PENDING_SYNCED)
             self.conn.commit()
         except sqlite3.Error as e:
             print(f"❌ Lỗi tạo bảng: {e}")
@@ -89,6 +98,38 @@ class DatabaseManager:
         except sqlite3.Error as e:
             print(f"❌ Lỗi query: {e}")
             return {}
+
+    def insert_pending_event(self, event_json: str) -> Optional[int]:
+        """Persist a failed-to-sync event as a JSON string for later retry."""
+        try:
+            self.cursor.execute(INSERT_PENDING_EVENT, (event_json,))
+            self.conn.commit()
+            return self.cursor.lastrowid
+        except sqlite3.Error as e:
+            print(f"❌ Lỗi insert pending_event: {e}")
+            return None
+
+    def get_unsynced_events(self, limit: int = 100) -> List[Tuple]:
+        """Return up to *limit* rows from pending_events where synced=0."""
+        query = "SELECT id, event_json FROM pending_events WHERE synced=0 LIMIT ?;"
+        try:
+            self.cursor.execute(query, (limit,))
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"❌ Lỗi query pending_events: {e}")
+            return []
+
+    def mark_events_synced(self, ids: List[int]) -> None:
+        """Mark the given pending_event rows as synced=1."""
+        if not ids:
+            return
+        placeholders = ",".join("?" * len(ids))
+        query = f"UPDATE pending_events SET synced=1 WHERE id IN ({placeholders});"
+        try:
+            self.cursor.execute(query, ids)
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"❌ Lỗi update pending_events: {e}")
 
     def close(self):
         if self.conn:

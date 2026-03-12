@@ -66,5 +66,5 @@ frontend/.env
 frontend/dist/
 frontend/build/
 .aidlc-rule-details/
-.copilot/
+.github/
 aidlc-docs/
