@@ -27,12 +27,12 @@ async def get_daily_summary(
         FROM study_sessions ss
         JOIN session_blocks sb ON sb.session_id = ss.session_id
         WHERE ss.user_id = :user_id
-          AND ss.started_at::date = :target_date
+          AND ss.started_at::text LIKE :target_date_prefix
           AND sb.end_at IS NOT NULL
     """)
 
     time_result = await db.execute(
-        time_query, {"user_id": str(user_id), "target_date": target_date.isoformat()}
+        time_query, {"user_id": str(user_id), "target_date_prefix": target_date.isoformat() + "%"}
     )
     time_row = time_result.mappings().one()
 
@@ -48,11 +48,11 @@ async def get_daily_summary(
             ), 0)::int AS fatigue_count
         FROM ai_events
         WHERE user_id = :user_id
-          AND start_at::date = :target_date
+          AND start_at::text LIKE :target_date_prefix
     """)
 
     event_result = await db.execute(
-        event_query, {"user_id": str(user_id), "target_date": target_date.isoformat()}
+        event_query, {"user_id": str(user_id), "target_date_prefix": target_date.isoformat() + "%"}
     )
     event_row = event_result.mappings().one()
 

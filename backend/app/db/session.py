@@ -12,11 +12,11 @@ from app.core.config import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,        # True → log SQL queries
-    pool_size=5,                # Connection pool tối thiểu
-    max_overflow=10,            # Thêm tối đa 10 connection khi đông
-    pool_pre_ping=True,         # Kiểm tra connection còn sống
-    pool_recycle=300,           # Tái tạo connection mỗi 5 phút
+    echo=settings.DEBUG,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    # Transaction pooler (Supabase) yêu cầu tắt prepared statements
+    connect_args={"statement_cache_size": 0},
 )
 
 async_session_factory = async_sessionmaker(
