@@ -51,9 +51,11 @@ export interface StudySession {
 export interface SessionCreate {
   task_id?: string;
   planned_mode: SessionMode;
+  started_at: string;
 }
 
 export interface SessionEnd {
+  ended_at: string;
   end_reason: EndReason;
 }
 
@@ -69,6 +71,7 @@ export interface SessionBlock {
 export interface BlockCreate {
   session_id: string;
   block_type: BlockType;
+  start_at: string;
   planned_duration_seconds: number;
 }
 

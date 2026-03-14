@@ -12,7 +12,9 @@ from config import performance_config as perf
 from config.settings import settings as monitoring_settings
 from backend_client import BackendClient
 from event_sync_service import EventSyncService
+import argparse
 import cv2 
+import os
 import time
 import uuid
 import json
@@ -20,7 +22,8 @@ from datetime import datetime, timezone
 from queue import Queue, Empty
 
 class MainApplication:
-    def __init__(self, camera_index: int = 0):
+    def __init__(self, camera_index: int = 0, no_display: bool = False):
+        self.no_display = no_display
         self.frame_queue = Queue(maxsize=perf.FRAME_QUEUE_SIZE)
         self.result_queue = Queue(maxsize=perf.RESULT_QUEUE_SIZE)
         self.camera_thread = CameraThread(camera_index, self.frame_queue)
@@ -57,8 +60,8 @@ class MainApplication:
         self.fps_frame_count = 0
         self.current_fps = 0.0
 
-        # Backend sync
-        self.session_id = str(uuid.uuid4())
+        # Backend sync — use MONITORING_SESSION_ID env var if provided (set by web timer)
+        self.session_id = os.environ.get("MONITORING_SESSION_ID") or str(uuid.uuid4())
         _backend_client = BackendClient(
             base_url=monitoring_settings.API_BASE_URL,
             jwt_token=monitoring_settings.JWT_TOKEN,
@@ -108,24 +111,25 @@ class MainApplication:
             if ai_result is not None:
                 last_ai_result = ai_result
             
-            # === 3. XỬ LÝ & HIỂN THỊ (luôn chạy ở tốc độ camera) ===
-            if last_ai_result is not None:
-                processed = self.process_frame(last_ai_result, frame)
-                display_frame = self.draw_overlay(frame, processed)
+            # === 3. XỬ LÝ & HIỂN THỊ (bỏ qua nếu chạy headless) ===
+            if not self.no_display:
+                if last_ai_result is not None:
+                    processed = self.process_frame(last_ai_result, frame)
+                    display_frame = self.draw_overlay(frame, processed)
+                else:
+                    display_frame = frame.copy()
+                    cv2.putText(display_frame, "Loading AI...", (20, 40),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+                cv2.imshow("Smart Learning Support System", display_frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('c'):
+                    self.calibrate()
             else:
-                # Chưa có AI result → hiển thị frame gốc + "Loading..."
-                display_frame = frame.copy()
-                cv2.putText(display_frame, "Loading AI...", (20, 40),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
-            
-            cv2.imshow("Smart Learning Support System", display_frame)
-            
-            # Xử lý phím bấm
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('c'):
-                self.calibrate()
+                # Headless mode: chỉ xử lý AI, không hiển thị
+                if last_ai_result is not None:
+                    self.process_frame(last_ai_result, frame)
         
         self.stop()
 
@@ -394,7 +398,13 @@ class MainApplication:
         
         return frame
 if __name__ == "__main__":
-    app = MainApplication(camera_index=0)
+    parser = argparse.ArgumentParser(description="Smart Learning Support System - Camera Monitoring")
+    parser.add_argument("--no-display", action="store_true",
+                        help="Run headless (no OpenCV window) — used when spawned by the web backend")
+    parser.add_argument("--camera", type=int, default=0, help="Camera device index")
+    args = parser.parse_args()
+
+    app = MainApplication(camera_index=args.camera, no_display=args.no_display)
     try:
         app.run()
     except KeyboardInterrupt:

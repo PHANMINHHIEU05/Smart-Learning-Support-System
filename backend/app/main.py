@@ -7,7 +7,8 @@ from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import setup_logging
 from app.db.session import engine
-from app.routers import ai_events, alerts, analytics, blocks, sessions, tasks, user_settings
+from app.routers import ai_events, alerts, analytics, blocks, monitoring, sessions, tasks, user_settings
+from app.routers.monitoring import cleanup_all_monitoring_processes
 
 
 @asynccontextmanager
@@ -15,7 +16,8 @@ async def lifespan(app: FastAPI):
     """Startup & shutdown events."""
     setup_logging()
     yield
-    # Shutdown: đóng tất cả connections
+    # Shutdown: đóng tất cả connections + dừng các monitoring subprocess
+    cleanup_all_monitoring_processes()
     await engine.dispose()
 
 
@@ -45,6 +47,7 @@ app.include_router(ai_events.router)
 app.include_router(alerts.router)
 app.include_router(analytics.router)
 app.include_router(user_settings.router)
+app.include_router(monitoring.router)
 
 
 # ── Health Check ──
