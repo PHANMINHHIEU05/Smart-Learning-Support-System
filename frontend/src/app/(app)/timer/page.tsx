@@ -240,7 +240,7 @@ export default function TimerPage() {
     Promise.all([
       apiFetch<Task[]>("/api/v1/tasks/?status=todo&limit=50"),
       apiFetch<Task[]>("/api/v1/tasks/?status=doing&limit=50"),
-      apiFetch<UserSetting>("/api/v1/settings"),
+      apiFetch<UserSetting>("/api/v1/settings/"),
     ])
       .then(([todo, doing, s]) => {
         setTasks([...todo, ...doing]);
@@ -448,7 +448,7 @@ export default function TimerPage() {
             },
       );
 
-      const updatedSettings = await apiFetch<UserSetting>("/api/v1/settings", {
+      const updatedSettings = await apiFetch<UserSetting>("/api/v1/settings/", {
         method: "PUT",
         body: JSON.stringify({ monitoring_mode: res.applied_mode }),
       });
@@ -466,7 +466,7 @@ export default function TimerPage() {
     setSavingSoundPref(true);
     setError(null);
     try {
-      const updatedSettings = await apiFetch<UserSetting>("/api/v1/settings", {
+      const updatedSettings = await apiFetch<UserSetting>("/api/v1/settings/", {
         method: "PUT",
         body: JSON.stringify({ critical_sound_enabled: enabled }),
       });

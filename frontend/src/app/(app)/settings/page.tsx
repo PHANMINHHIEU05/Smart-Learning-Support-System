@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    apiFetch<UserSetting>("/api/v1/settings")
+    apiFetch<UserSetting>("/api/v1/settings/")
       .then((s) => {
         setSettings(s);
         setForm({
@@ -40,7 +40,7 @@ export default function SettingsPage() {
     setError(null);
     setSaved(false);
     try {
-      const updated = await apiFetch<UserSetting>("/api/v1/settings", {
+      const updated = await apiFetch<UserSetting>("/api/v1/settings/", {
         method: "PUT",
         body: JSON.stringify(form),
       });
