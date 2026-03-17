@@ -16,6 +16,8 @@ class UserSettingResponse(BaseModel):
     pomodoro_cycles_before_long_break: int | None = None
     ai_monitoring_enabled: bool | None = None
     retention_days: int | None = None
+    monitoring_mode: str | None = None
+    critical_sound_enabled: bool | None = None
     updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
@@ -30,3 +32,9 @@ class UserSettingUpdate(BaseModel):
     pomodoro_cycles_before_long_break: int | None = Field(None, ge=1, le=10)
     ai_monitoring_enabled: bool | None = None
     retention_days: int | None = Field(None, ge=1, le=365)
+    monitoring_mode: str | None = Field(
+        None,
+        pattern=r'^(external_camera|in_web_widget|alerts_only)$',
+        description="One of: external_camera, in_web_widget, alerts_only",
+    )
+    critical_sound_enabled: bool | None = None

@@ -18,6 +18,8 @@ _DEFAULTS = {
     "pomodoro_cycles_before_long_break": 4,
     "ai_monitoring_enabled": True,
     "retention_days": 30,
+    "monitoring_mode": "external_camera",
+    "critical_sound_enabled": True,
 }
 
 

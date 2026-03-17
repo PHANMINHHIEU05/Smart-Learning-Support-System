@@ -94,6 +94,8 @@ export interface UserSetting {
   pomodoro_cycles_before_long_break: number;
   ai_monitoring_enabled: boolean;
   retention_days: number;
+  monitoring_mode: string | null;
+  critical_sound_enabled: boolean | null;
   updated_at: string;
 }
 
@@ -106,4 +108,56 @@ export interface UserSettingUpdate {
   pomodoro_cycles_before_long_break?: number;
   ai_monitoring_enabled?: boolean;
   retention_days?: number;
+  monitoring_mode?: string;
+  critical_sound_enabled?: boolean;
+}
+
+// ── Monitoring ──────────────────────────────────────────────────────────────
+
+export type MonitoringMode =
+  | "external_camera"
+  | "in_web_widget"
+  | "alerts_only";
+export type MonitoringProcessStatus =
+  | "idle"
+  | "starting"
+  | "active"
+  | "degraded"
+  | "stopped";
+
+export interface DegradedReason {
+  code: string;
+  message: string;
+  recoverable: boolean;
+  fallback_mode: string;
+}
+
+export interface MonitoringStatusResponse {
+  status: MonitoringProcessStatus;
+  active_mode: string | null;
+  pid: number | null;
+  degraded_reason: DegradedReason | null;
+  severity_defaults: Record<string, string[]>;
+}
+
+export interface ModeSwitchResponse {
+  requested_mode: string;
+  applied_mode: string;
+  status: MonitoringProcessStatus;
+  degraded_reason: DegradedReason | null;
+  persisted: boolean;
+}
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+
+export interface AlertResponse {
+  alert_id: string;
+  user_id: string;
+  session_id: string | null;
+  rule_id: string | null;
+  event_id: string | null;
+  fired_at: string;
+  channel: string | null;
+  message: string | null;
+  payload_json: unknown;
 }

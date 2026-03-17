@@ -26,6 +26,8 @@ export default function SettingsPage() {
             s.pomodoro_cycles_before_long_break,
           ai_monitoring_enabled: s.ai_monitoring_enabled,
           retention_days: s.retention_days,
+          monitoring_mode: s.monitoring_mode ?? "external_camera",
+          critical_sound_enabled: s.critical_sound_enabled ?? true,
         });
       })
       .catch((e) => setError(e.message))
@@ -194,6 +196,41 @@ export default function SettingsPage() {
                   setForm((f) => ({
                     ...f,
                     ai_monitoring_enabled: e.target.checked,
+                  }))
+                }
+                className="w-4 h-4 text-blue-600 rounded"
+              />
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">
+                Default monitoring mode
+              </span>
+              <select
+                value={form.monitoring_mode ?? "external_camera"}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    monitoring_mode: e.target.value,
+                  }))
+                }
+                className="w-40 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="external_camera">External camera</option>
+                <option value="in_web_widget">In-web widget</option>
+                <option value="alerts_only">Alerts only</option>
+              </select>
+            </label>
+            <label className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700">
+                Critical alert sound
+              </span>
+              <input
+                type="checkbox"
+                checked={form.critical_sound_enabled ?? true}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    critical_sound_enabled: e.target.checked,
                   }))
                 }
                 className="w-4 h-4 text-blue-600 rounded"

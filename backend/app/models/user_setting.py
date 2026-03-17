@@ -22,4 +22,6 @@ class UserSetting(Base):
     pomodoro_cycles_before_long_break: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_monitoring_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monitoring_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    critical_sound_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
