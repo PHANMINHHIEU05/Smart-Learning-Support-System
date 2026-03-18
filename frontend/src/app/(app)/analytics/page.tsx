@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch } from '@/lib/api-client'
-import type { DailySummary } from '@/types/api'
+import type { DailySummary, EnemyStats, FocusHeatmapCell } from '@/types/api'
 
 function formatSeconds(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -27,8 +27,16 @@ function last7Days(): string[] {
 
 export default function AnalyticsPage() {
   const [selectedDate, setSelectedDate] = useState<string>(toISODate(new Date()))
+  const [dateFrom, setDateFrom] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 6)
+    return toISODate(d)
+  })
+  const [dateTo, setDateTo] = useState<string>(toISODate(new Date()))
   const [summary, setSummary] = useState<DailySummary | null>(null)
   const [weekData, setWeekData] = useState<Record<string, DailySummary>>({})
+  const [focusHeatmap, setFocusHeatmap] = useState<FocusHeatmapCell[]>([])
+  const [enemyStats, setEnemyStats] = useState<EnemyStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -56,8 +64,29 @@ export default function AnalyticsPage() {
     })
   }, [])
 
+  useEffect(() => {
+    setError(null)
+    Promise.all([
+      apiFetch<FocusHeatmapCell[]>(
+        `/api/v1/analytics/focus-heatmap?date_from=${dateFrom}&date_to=${dateTo}`,
+      ),
+      apiFetch<EnemyStats>(
+        `/api/v1/analytics/enemy-stats?date_from=${dateFrom}&date_to=${dateTo}`,
+      ),
+    ])
+      .then(([heatmap, enemies]) => {
+        setFocusHeatmap(heatmap)
+        setEnemyStats(enemies)
+      })
+      .catch((e) => setError(e.message))
+  }, [dateFrom, dateTo])
+
   const days = last7Days()
   const maxFocusSec = Math.max(1, ...days.map((d) => weekData[d]?.total_focus_seconds ?? 0))
+  const maxHeatmapFocusSec = Math.max(
+    1,
+    ...focusHeatmap.map((cell) => cell.focus_seconds),
+  )
 
   return (
     <div>
@@ -79,6 +108,30 @@ export default function AnalyticsPage() {
         >
           Today
         </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Range from</label>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Range to</label>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom}
+            max={toISODate(new Date())}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
       </div>
 
       {error && (
@@ -143,6 +196,62 @@ export default function AnalyticsPage() {
                   {label}
                 </span>
               </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Enemy stats */}
+      <div className="bg-white rounded-lg shadow p-5 mt-6">
+        <h2 className="font-semibold text-gray-800 mb-4">Top Distraction Enemies</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div className="rounded border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-amber-700 font-medium">Phone + Book</p>
+            <p className="text-2xl font-bold text-amber-900 mt-1">
+              {enemyStats?.phone_book_count ?? 0}
+            </p>
+          </div>
+          <div className="rounded border border-rose-200 bg-rose-50 px-4 py-3">
+            <p className="text-rose-700 font-medium">Drowsy + Slump</p>
+            <p className="text-2xl font-bold text-rose-900 mt-1">
+              {enemyStats?.drowsy_slump_count ?? 0}
+            </p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-slate-600 font-medium">Tracked AI Events</p>
+            <p className="text-2xl font-bold text-slate-900 mt-1">
+              {enemyStats?.total_events ?? 0}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Focus heatmap by hour */}
+      <div className="bg-white rounded-lg shadow p-5 mt-6">
+        <h2 className="font-semibold text-gray-800 mb-4">Focus Heatmap by Hour</h2>
+        <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
+          {focusHeatmap.map((cell) => {
+            const intensity = Math.max(
+              10,
+              Math.round((cell.focus_seconds / maxHeatmapFocusSec) * 100),
+            )
+            return (
+              <div
+                key={cell.hour}
+                className="rounded border border-blue-100 px-2 py-2"
+                style={{ backgroundColor: `rgb(59 130 246 / ${intensity}%)` }}
+                title={`Hour ${String(cell.hour).padStart(2, '0')}:00 · ${formatSeconds(
+                  cell.focus_seconds,
+                )} · Score ${Math.round(cell.avg_focus_score)}`}
+              >
+                <p className="text-xs font-semibold text-blue-950">
+                  {String(cell.hour).padStart(2, '0')}:00
+                </p>
+                <p className="text-[11px] text-blue-900">
+                  {formatSeconds(cell.focus_seconds)}
+                </p>
+                <p className="text-[10px] text-blue-900/80">{Math.round(cell.avg_focus_score)}%</p>
+              </div>
             )
           })}
         </div>

@@ -17,11 +17,13 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import tempfile
 import uuid
+import json
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +31,10 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.schemas.user_setting import UserSettingUpdate
 from app.services.user_settings_service import get_or_create_settings, update_settings
+from app.services.monitoring_orchestrator_service import (
+    MonitoringOrchestratorService,
+    InterventionStateResponse,
+)
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
@@ -42,6 +48,12 @@ _active_modes: dict[str, str] = {}
 
 # user_id → alert_ids acknowledged in the current monitoring session
 _acked_alerts: dict[str, set[str]] = {}
+
+# user_id -> snapshot jpeg path written by the monitoring subprocess
+_snapshot_files: dict[str, Path] = {}
+
+# user_id -> json metrics path written by the monitoring subprocess
+_metrics_files: dict[str, Path] = {}
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -129,15 +141,29 @@ def _compute_status(
 def _kill_user_process(key: str) -> None:
     proc = _processes.pop(key, None)
     if proc is None:
+        snapshot = _snapshot_files.pop(key, None)
+        metrics = _metrics_files.pop(key, None)
+        if snapshot and snapshot.exists():
+            snapshot.unlink(missing_ok=True)
+        if metrics and metrics.exists():
+            metrics.unlink(missing_ok=True)
         return
-    if proc.poll() is None:
-        try:
-            proc.send_signal(signal.SIGTERM)
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        except ProcessLookupError:
-            pass
+    try:
+        if proc.poll() is None:
+            try:
+                proc.send_signal(signal.SIGTERM)
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+    finally:
+        snapshot = _snapshot_files.pop(key, None)
+        metrics = _metrics_files.pop(key, None)
+        if snapshot and snapshot.exists():
+            snapshot.unlink(missing_ok=True)
+        if metrics and metrics.exists():
+            metrics.unlink(missing_ok=True)
 
 
 def cleanup_all_monitoring_processes() -> None:
@@ -174,12 +200,25 @@ async def start_monitoring(
     # Resolve preferred mode from persisted user settings
     settings = await get_or_create_settings(db, user_id)
     mode = settings.monitoring_mode or "external_camera"
+    snapshot_dir = Path(tempfile.gettempdir()) / "smart-learning-monitoring"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_path = snapshot_dir / f"{key}.jpg"
+    metrics_path = snapshot_dir / f"{key}.json"
+    snapshot_path.unlink(missing_ok=True)
+    metrics_path.unlink(missing_ok=True)
 
     env = {
         **os.environ,
         "MONITORING_JWT_TOKEN": _token_from_request(request),
         "MONITORING_SESSION_ID": body.session_id,
         "MONITORING_API_BASE_URL": "http://localhost:8000",
+        "MONITORING_SNAPSHOT_PATH": str(snapshot_path),
+        "MONITORING_METRICS_PATH": str(metrics_path),
+        "MONITORING_METRICS_INTERVAL": "0.50",
+        "MONITORING_SNAPSHOT_INTERVAL": "0.10",
+        "MONITORING_SNAPSHOT_JPEG_QUALITY": "72",
+        "MONITORING_BATCH_INTERVAL": "5",
+        "MONITORING_RETRY_INTERVAL": "15",
     }
 
     cmd = [str(_MONITORING_PYTHON), str(_MONITORING_SCRIPT)]
@@ -199,6 +238,8 @@ async def start_monitoring(
 
     _processes[key] = proc
     _active_modes[key] = mode
+    _snapshot_files[key] = snapshot_path
+    _metrics_files[key] = metrics_path
     return MonitoringStatusResponse(
         status="active",
         active_mode=mode,
@@ -320,3 +361,65 @@ async def get_acked_alerts(
     """Return alert IDs acknowledged in the current session."""
     key = str(user_id)
     return list(_acked_alerts.get(key, set()))
+
+
+@router.get("/snapshot")
+async def get_monitoring_snapshot(
+    user_id: uuid.UUID = Depends(get_current_user),
+) -> Response:
+    key = str(user_id)
+    snapshot_path = _snapshot_files.get(key)
+    metrics_path = _metrics_files.get(key)
+    if snapshot_path is None or not snapshot_path.exists():
+      raise HTTPException(status_code=404, detail="Monitoring snapshot not available")
+
+    headers = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+    }
+
+    if metrics_path is not None and metrics_path.exists():
+        try:
+            payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+            headers["X-Python-Fps-Main"] = str(payload.get("main_fps", 0))
+            headers["X-Python-Fps-Camera"] = str(payload.get("camera_fps", 0))
+            headers["X-Python-Fps-Ai"] = str(payload.get("ai_fps", 0))
+        except Exception:
+            pass
+
+    return Response(
+        content=snapshot_path.read_bytes(),
+        media_type="image/jpeg",
+        headers=headers,
+    )
+
+
+@router.get("/interventions/{session_id}", response_model=InterventionStateResponse)
+async def get_intervention_state(
+    session_id: str,
+    user_id: uuid.UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InterventionStateResponse:
+    """
+    Get current intervention state for timer UI real-time polling.
+
+    Returns escalation level (none/warning/paused), pause reason, and countdown
+    state for the active study session.
+
+    Used by timer UI to:
+    - Display warning color when distraction threshold nearing (10s+)
+    - Show pause overlay when session auto-paused
+    - Show resume countdown when user returns after leave-seat
+    """
+    orchestrator = MonitoringOrchestratorService()
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id format")
+
+    return await orchestrator.get_live_intervention_state(
+        db=db,
+        user_id=user_id,
+        session_id=session_uuid,
+    )
+

@@ -6,6 +6,7 @@ from app.services import (
     ai_event_service,
     alert_service,
     analytics_service,
+    engagement_service,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ai_event_service",
     "alert_service",
     "analytics_service",
+    "engagement_service",
 ]

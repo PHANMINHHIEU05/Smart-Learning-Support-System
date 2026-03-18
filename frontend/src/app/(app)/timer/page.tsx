@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { CameraWidget } from "@/components/CameraWidget";
+import { BreakOverlay202020 } from "@/components/BreakOverlay202020";
+import { WhiteNoiseControl } from "@/components/WhiteNoiseControl";
 import {
   DEFAULT_CRITICAL_EVENT_TYPES,
   MODE_LABELS,
@@ -10,9 +13,11 @@ import {
   pickUnackedCriticalAlerts,
 } from "@/lib/monitoring/bridge";
 import type {
+  AiEventResponse,
   AlertResponse,
   BlockCreate,
   BlockType,
+  InterventionStateResponse,
   ModeSwitchResponse,
   MonitoringStatusResponse,
   SessionBlock,
@@ -127,6 +132,24 @@ const MONITORING_MODES = [
   "alerts_only",
 ] as const;
 
+const ERGONOMIC_EVENT_TYPES = [
+  "posture_deviation",
+  "head_slump",
+  "posture_slouch",
+  "posture_too_close",
+  "near_screen",
+  "too_close",
+];
+
+const ERGONOMIC_REMINDER_COOLDOWN_MS = 60000;
+const ERGONOMIC_ACTIVE_WINDOW_MS = 30000;
+const EYE_REST_CADENCE_SEC = 20 * 60;
+const EYE_REST_OVERLAY_SEC = 20;
+
+function shouldShowExternalDisplay(mode: string): boolean {
+  return mode !== "in_web_widget";
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -144,9 +167,23 @@ export default function TimerPage() {
   const [monitoringStatus, setMonitoringStatus] =
     useState<MonitoringStatusResponse | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<AlertResponse[]>([]);
+  const [recentAiEvents, setRecentAiEvents] = useState<AiEventResponse[]>([]);
   const [ackedAlertIds, setAckedAlertIds] = useState<Set<string>>(new Set());
+  const [interventionState, setInterventionState] =
+    useState<InterventionStateResponse | null>(null);
+  const [ergonomicReminderText, setErgonomicReminderText] = useState<
+    string | null
+  >(null);
+  const [isEyeRestOpen, setIsEyeRestOpen] = useState(false);
+  const [eyeRestSecondsRemaining, setEyeRestSecondsRemaining] =
+    useState(EYE_REST_OVERLAY_SEC);
+  const [eyeRestNextPromptSec, setEyeRestNextPromptSec] =
+    useState(EYE_REST_CADENCE_SEC);
+
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousCriticalCountRef = useRef(0);
+  const ergonomicLastShownAtRef = useRef<number>(0);
+  const autoPausedByInterventionRef = useRef(false);
 
   const [timer, dispatch] = useReducer(timerReducer, {
     status: "idle",
@@ -162,14 +199,22 @@ export default function TimerPage() {
   // ── Monitoring polling ────────────────────────────────────────────────────
   const pollMonitoring = useCallback(async (sessionId: string) => {
     try {
-      const [status, alerts] = await Promise.all([
+      const [status, alerts, events, intervention] = await Promise.all([
         apiFetch<MonitoringStatusResponse>("/api/v1/monitoring/status"),
         apiFetch<AlertResponse[]>(
           `/api/v1/alerts/?session_id=${sessionId}&limit=20`,
         ),
+        apiFetch<AiEventResponse[]>(
+          `/api/v1/ai-events/?session_id=${sessionId}&limit=20`,
+        ),
+        apiFetch<InterventionStateResponse>(
+          `/api/v1/monitoring/interventions/${sessionId}`,
+        ),
       ]);
       setMonitoringStatus(status);
       setRecentAlerts(alerts);
+      setRecentAiEvents(events);
+      setInterventionState(intervention);
     } catch {
       // ignore transient poll errors — show last known state
     }
@@ -196,6 +241,23 @@ export default function TimerPage() {
   const normalizedStatus = normalizeMonitoringStatus(monitoringStatus);
   const criticalEventTypes =
     normalizedStatus.severityDefaults.critical ?? DEFAULT_CRITICAL_EVENT_TYPES;
+  const latestAiEvent = recentAiEvents[0] ?? null;
+  const latestAiPayload =
+    latestAiEvent && typeof latestAiEvent.payload_json === "object"
+      ? (latestAiEvent.payload_json as Record<string, unknown>)
+      : null;
+  const latestFocusScore =
+    latestAiPayload && typeof latestAiPayload.focus_score === "number"
+      ? latestAiPayload.focus_score
+      : null;
+  const aiEventAgeMs = latestAiEvent
+    ? Date.now() - new Date(latestAiEvent.start_at).getTime()
+    : Number.POSITIVE_INFINITY;
+  const isAiProcessingLive =
+    (normalizedStatus.status === "active" ||
+      normalizedStatus.status === "degraded") &&
+    Number.isFinite(aiEventAgeMs) &&
+    aiEventAgeMs <= 45000;
   const unackedCriticalAlerts = pickUnackedCriticalAlerts(
     recentAlerts,
     ackedAlertIds,
@@ -302,13 +364,14 @@ export default function TimerPage() {
       // Bật giám sát AI nếu được bật trong settings
       if (settings.ai_monitoring_enabled !== false) {
         try {
+          const preferredMode = settings.monitoring_mode ?? "external_camera";
           const status = await apiFetch<MonitoringStatusResponse>(
             "/api/v1/monitoring/start",
             {
               method: "POST",
               body: JSON.stringify({
                 session_id: session.session_id,
-                show_display: true,
+                show_display: shouldShowExternalDisplay(preferredMode),
               }),
             },
           );
@@ -399,17 +462,37 @@ export default function TimerPage() {
   const handleRetryMonitoring = async () => {
     if (!timer.session) return;
     try {
+      const modeForRetry =
+        settings?.monitoring_mode ??
+        monitoringStatus?.active_mode ??
+        "external_camera";
       const status = await apiFetch<MonitoringStatusResponse>(
         "/api/v1/monitoring/start",
         {
           method: "POST",
           body: JSON.stringify({
             session_id: timer.session.session_id,
-            show_display: true,
+            show_display: shouldShowExternalDisplay(modeForRetry),
           }),
         },
       );
-      setMonitoringStatus(status);
+      if (modeForRetry !== "alerts_only") {
+        const switched = await apiFetch<ModeSwitchResponse>(
+          "/api/v1/monitoring/mode",
+          {
+            method: "POST",
+            body: JSON.stringify({ mode: modeForRetry }),
+          },
+        );
+        setMonitoringStatus({
+          ...status,
+          status: switched.status,
+          active_mode: switched.applied_mode,
+          degraded_reason: switched.degraded_reason,
+        });
+      } else {
+        setMonitoringStatus(status);
+      }
     } catch {
       // keep degraded banner visible
     }
@@ -419,6 +502,31 @@ export default function TimerPage() {
     setSwitchingMode(true);
     setError(null);
     try {
+      const isMonitoringRunning =
+        normalizedStatus.status === "active" ||
+        normalizedStatus.status === "degraded";
+
+      if (mode !== "alerts_only" && !timer.session) {
+        setError(
+          "Start a study session before switching to camera monitoring modes.",
+        );
+        return;
+      }
+
+      if (mode !== "alerts_only" && timer.session && !isMonitoringRunning) {
+        const started = await apiFetch<MonitoringStatusResponse>(
+          "/api/v1/monitoring/start",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: timer.session.session_id,
+              show_display: shouldShowExternalDisplay(mode),
+            }),
+          },
+        );
+        setMonitoringStatus(started);
+      }
+
       const res = await apiFetch<ModeSwitchResponse>(
         "/api/v1/monitoring/mode",
         {
@@ -453,6 +561,27 @@ export default function TimerPage() {
         body: JSON.stringify({ monitoring_mode: res.applied_mode }),
       });
       setSettings(updatedSettings);
+
+      // Reconfigure subprocess display behavior immediately for camera modes.
+      if (
+        timer.session &&
+        (res.applied_mode === "external_camera" ||
+          res.applied_mode === "in_web_widget") &&
+        (normalizedStatus.status === "active" ||
+          normalizedStatus.status === "degraded")
+      ) {
+        const restarted = await apiFetch<MonitoringStatusResponse>(
+          "/api/v1/monitoring/start",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              session_id: timer.session.session_id,
+              show_display: shouldShowExternalDisplay(res.applied_mode),
+            }),
+          },
+        );
+        setMonitoringStatus(restarted);
+      }
     } catch (e: unknown) {
       setError(
         e instanceof Error ? e.message : "Failed to switch monitoring mode",
@@ -490,6 +619,124 @@ export default function TimerPage() {
   const handleAckAll = () => {
     unackedCriticalAlerts.forEach((a) => handleAckAlert(String(a.alert_id)));
   };
+
+  // Sync timer run/pause with backend intervention state.
+  useEffect(() => {
+    if (!interventionState) return;
+
+    if (
+      interventionState.escalation_level === "paused" &&
+      timer.status === "running"
+    ) {
+      autoPausedByInterventionRef.current = true;
+      dispatch({ type: "PAUSE" });
+      return;
+    }
+
+    if (
+      interventionState.escalation_level === "none" &&
+      autoPausedByInterventionRef.current &&
+      timer.status === "paused"
+    ) {
+      autoPausedByInterventionRef.current = false;
+      dispatch({ type: "RESUME" });
+    }
+  }, [interventionState, timer.status]);
+
+  // Gentle ergonomic reminder with anti-spam throttling.
+  useEffect(() => {
+    const ergonomicEvent = recentAiEvents.find((event) =>
+      ERGONOMIC_EVENT_TYPES.includes(event.event_type),
+    );
+
+    if (!ergonomicEvent) {
+      setErgonomicReminderText(null);
+      return;
+    }
+
+    const eventAgeMs = Date.now() - new Date(ergonomicEvent.start_at).getTime();
+    if (eventAgeMs > ERGONOMIC_ACTIVE_WINDOW_MS) {
+      setErgonomicReminderText(null);
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      now - ergonomicLastShownAtRef.current < ERGONOMIC_REMINDER_COOLDOWN_MS &&
+      ergonomicReminderText
+    ) {
+      return;
+    }
+
+    ergonomicLastShownAtRef.current = now;
+
+    if (
+      ergonomicEvent.event_type.includes("close") ||
+      ergonomicEvent.event_type.includes("near")
+    ) {
+      setErgonomicReminderText(
+        "You are sitting too close to the screen. Lean back to protect your eyes.",
+      );
+      return;
+    }
+
+    setErgonomicReminderText(
+      "Posture check: lift your chest, relax shoulders, and align your neck.",
+    );
+  }, [recentAiEvents, ergonomicReminderText]);
+
+  // 20-20-20 cadence countdown while running focus blocks.
+  useEffect(() => {
+    if (
+      timer.status !== "running" ||
+      timer.blockType !== "focus" ||
+      isEyeRestOpen
+    ) {
+      return;
+    }
+
+    const cadenceTick = setInterval(() => {
+      setEyeRestNextPromptSec((prev) => {
+        if (prev <= 1) {
+          setIsEyeRestOpen(true);
+          setEyeRestSecondsRemaining(EYE_REST_OVERLAY_SEC);
+          return EYE_REST_CADENCE_SEC;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(cadenceTick);
+  }, [timer.status, timer.blockType, isEyeRestOpen]);
+
+  // Overlay countdown for optional 20-second eye-rest.
+  useEffect(() => {
+    if (!isEyeRestOpen) return;
+
+    const overlayTick = setInterval(() => {
+      setEyeRestSecondsRemaining((prev) => {
+        if (prev <= 1) {
+          setIsEyeRestOpen(false);
+          return EYE_REST_OVERLAY_SEC;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(overlayTick);
+  }, [isEyeRestOpen]);
+
+  const dismissEyeRestOverlay = () => {
+    setIsEyeRestOpen(false);
+    setEyeRestSecondsRemaining(EYE_REST_OVERLAY_SEC);
+  };
+
+  const completeEyeRestOverlay = () => {
+    setIsEyeRestOpen(false);
+    setEyeRestSecondsRemaining(EYE_REST_OVERLAY_SEC);
+  };
+
+  const eyeRestCadenceLabel = formatTime(eyeRestNextPromptSec);
 
   const progressPct = (() => {
     if (timer.status === "idle") return 0;
@@ -563,6 +810,27 @@ export default function TimerPage() {
         </div>
       ) : (
         <div className="space-y-3">
+          {interventionState?.escalation_level === "warning" && (
+            <div className="rounded-xl bg-amber-50 border border-amber-300 p-3 text-sm text-amber-800">
+              Attention drifting. Stay on task to avoid auto-pause.
+            </div>
+          )}
+
+          {interventionState?.escalation_level === "paused" && (
+            <div className="rounded-xl bg-indigo-50 border border-indigo-300 p-3 text-sm text-indigo-800">
+              Session paused by intervention:{" "}
+              {interventionState.pause_reason ?? "unknown"}.
+              {interventionState.resume_countdown_sec !== null &&
+                ` Resume in ${Math.ceil(interventionState.resume_countdown_sec)}s.`}
+            </div>
+          )}
+
+          {ergonomicReminderText && (
+            <div className="rounded-xl bg-cyan-50 border border-cyan-200 p-3 text-sm text-cyan-800">
+              {ergonomicReminderText}
+            </div>
+          )}
+
           {/* ── Critical alert bar ── */}
           {unackedCriticalAlerts.length > 0 && (
             <div className="rounded-xl bg-red-50 border border-red-300 p-3 space-y-2">
@@ -622,6 +890,12 @@ export default function TimerPage() {
               completed
             </p>
 
+            {timer.blockType === "focus" && (
+              <p className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded px-2 py-1">
+                20-20-20 reminder in {eyeRestCadenceLabel}
+              </p>
+            )}
+
             <div className="flex justify-center gap-3">
               {timer.status === "running" ? (
                 <button
@@ -672,6 +946,30 @@ export default function TimerPage() {
                   {MODE_LABELS[normalizedStatus.activeMode] ??
                     normalizedStatus.activeMode}
                 </p>
+              )}
+              <div
+                className={`rounded border px-2 py-1.5 text-xs ${
+                  isAiProcessingLive
+                    ? "border-green-200 bg-green-50 text-green-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700"
+                }`}
+              >
+                <p className="font-medium">
+                  AI processing:{" "}
+                  {isAiProcessingLive ? "Live" : "No recent AI signal"}
+                </p>
+                {latestAiEvent && (
+                  <p className="mt-1">
+                    Last event: {latestAiEvent.event_type}
+                    {latestFocusScore !== null
+                      ? ` · Focus ${latestFocusScore}%`
+                      : ""}
+                  </p>
+                )}
+              </div>
+              {/* Camera preview — shown only in in_web_widget mode */}
+              {selectedMode === "in_web_widget" && (
+                <CameraWidget className="w-full aspect-video" />
               )}
               <div className="grid grid-cols-1 gap-2 pt-1">
                 <label className="text-xs text-gray-600">Monitoring mode</label>
@@ -724,8 +1022,17 @@ export default function TimerPage() {
                 )}
             </div>
           )}
+
+          <WhiteNoiseControl />
         </div>
       )}
+
+      <BreakOverlay202020
+        isOpen={isEyeRestOpen}
+        secondsRemaining={eyeRestSecondsRemaining}
+        onDismiss={dismissEyeRestOverlay}
+        onComplete={completeEyeRestOverlay}
+      />
     </div>
   );
 }

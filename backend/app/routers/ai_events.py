@@ -36,6 +36,7 @@ async def create_events_batch(
 async def list_events(
     db: AsyncSession = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user),
+    session_id: uuid.UUID | None = Query(None),
     event_type: str | None = Query(None),
     date_from: datetime | None = Query(None),
     date_to: datetime | None = Query(None),
@@ -44,6 +45,7 @@ async def list_events(
 ):
     return await ai_event_service.list_events(
         db, user_id,
+        session_id=session_id,
         event_type=event_type, date_from=date_from, date_to=date_to,
         offset=offset, limit=limit,
     )

@@ -6,8 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import setup_logging
+from app.db.schema_compat import apply_runtime_schema_compatibility
 from app.db.session import engine
-from app.routers import ai_events, alerts, analytics, blocks, monitoring, sessions, tasks, user_settings
+from app.routers import ai_events, alerts, analytics, blocks, engagement, monitoring, sessions, tasks, user_settings
 from app.routers.monitoring import cleanup_all_monitoring_processes
 
 
@@ -15,6 +16,7 @@ from app.routers.monitoring import cleanup_all_monitoring_processes
 async def lifespan(app: FastAPI):
     """Startup & shutdown events."""
     setup_logging()
+    await apply_runtime_schema_compatibility(engine)
     yield
     # Shutdown: đóng tất cả connections + dừng các monitoring subprocess
     cleanup_all_monitoring_processes()
@@ -34,6 +36,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ── Exception Handlers ──
@@ -46,6 +49,7 @@ app.include_router(blocks.router)
 app.include_router(ai_events.router)
 app.include_router(alerts.router)
 app.include_router(analytics.router)
+app.include_router(engagement.router)
 app.include_router(user_settings.router)
 app.include_router(monitoring.router)
 

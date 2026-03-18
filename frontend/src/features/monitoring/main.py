@@ -24,6 +24,13 @@ from queue import Queue, Empty
 class MainApplication:
     def __init__(self, camera_index: int = 0, no_display: bool = False):
         self.no_display = no_display
+        self.snapshot_path = os.environ.get("MONITORING_SNAPSHOT_PATH")
+        self.metrics_path = os.environ.get("MONITORING_METRICS_PATH")
+        self.snapshot_interval = float(os.environ.get("MONITORING_SNAPSHOT_INTERVAL", "0.10"))
+        self.snapshot_jpeg_quality = int(os.environ.get("MONITORING_SNAPSHOT_JPEG_QUALITY", "72"))
+        self._last_snapshot_at = 0.0
+        self.metrics_interval = float(os.environ.get("MONITORING_METRICS_INTERVAL", "0.50"))
+        self._last_metrics_at = 0.0
         self.frame_queue = Queue(maxsize=perf.FRAME_QUEUE_SIZE)
         self.result_queue = Queue(maxsize=perf.RESULT_QUEUE_SIZE)
         self.camera_thread = CameraThread(camera_index, self.frame_queue)
@@ -84,6 +91,44 @@ class MainApplication:
         self.ai_thread.stop()
         self.sync_service.stop()
         cv2.destroyAllWindows()
+
+    def write_snapshot(self, frame) -> None:
+        if not self.snapshot_path:
+            return
+        now = time.time()
+        if now - self._last_snapshot_at < self.snapshot_interval:
+            return
+        tmp_path = f"{self.snapshot_path}.tmp"
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), self.snapshot_jpeg_quality],
+        )
+        if not ok:
+            return
+        with open(tmp_path, "wb") as snapshot_file:
+            snapshot_file.write(encoded.tobytes())
+        os.replace(tmp_path, self.snapshot_path)
+        self._last_snapshot_at = now
+
+    def write_metrics(self, camera_fps: float, ai_fps: float) -> None:
+        if not self.metrics_path:
+            return
+        now = time.time()
+        if now - self._last_metrics_at < self.metrics_interval:
+            return
+        tmp_path = f"{self.metrics_path}.tmp"
+        payload = {
+            "main_fps": round(self.current_fps, 2),
+            "camera_fps": round(camera_fps, 2),
+            "ai_fps": round(ai_fps, 2),
+            "updated_at": now,
+        }
+        with open(tmp_path, "w", encoding="utf-8") as metrics_file:
+            json.dump(payload, metrics_file)
+        os.replace(tmp_path, self.metrics_path)
+        self._last_metrics_at = now
+
     def run(self):
         self.start()
         
@@ -112,14 +157,17 @@ class MainApplication:
                 last_ai_result = ai_result
             
             # === 3. XỬ LÝ & HIỂN THỊ (bỏ qua nếu chạy headless) ===
+            display_frame = frame.copy()
             if not self.no_display:
                 if last_ai_result is not None:
                     processed = self.process_frame(last_ai_result, frame)
-                    display_frame = self.draw_overlay(frame, processed)
+                    display_frame = self.draw_overlay(frame.copy(), processed)
                 else:
                     display_frame = frame.copy()
                     cv2.putText(display_frame, "Loading AI...", (20, 40),
                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+                self.write_metrics(self.camera_thread.get_fps(), self.ai_thread.get_fps())
+                self.write_snapshot(display_frame)
                 cv2.imshow("Smart Learning Support System", display_frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
@@ -129,7 +177,13 @@ class MainApplication:
             else:
                 # Headless mode: chỉ xử lý AI, không hiển thị
                 if last_ai_result is not None:
-                    self.process_frame(last_ai_result, frame)
+                    processed = self.process_frame(last_ai_result, frame)
+                    display_frame = self.draw_overlay(frame.copy(), processed)
+                else:
+                    cv2.putText(display_frame, "Loading AI...", (20, 40),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+                self.write_metrics(self.camera_thread.get_fps(), self.ai_thread.get_fps())
+                self.write_snapshot(display_frame)
         
         self.stop()
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
+import { EngagementWidget } from "@/components/EngagementWidget";
 import type { DailySummary, Task } from "@/types/api";
 
 function formatSeconds(seconds: number): string {
@@ -123,6 +124,10 @@ export default function DashboardPage() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="mt-6">
+        <EngagementWidget />
       </div>
     </div>
   );

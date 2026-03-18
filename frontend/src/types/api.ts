@@ -84,6 +84,36 @@ export interface DailySummary {
   session_count: number;
 }
 
+export interface FocusHeatmapCell {
+  hour: number;
+  focus_seconds: number;
+  avg_focus_score: number;
+  event_count: number;
+}
+
+export interface EnemyStats {
+  date_from: string;
+  date_to: string;
+  phone_book_count: number;
+  drowsy_slump_count: number;
+  total_events: number;
+}
+
+export interface EngagementSummary {
+  completed_focus_blocks: number;
+  total_points: number;
+  current_level: number;
+  next_level_points: number;
+  progress_pct: number;
+  points_per_focus_block: number;
+}
+
+export interface WhiteNoisePreset {
+  id: string;
+  label: string;
+  description: string;
+}
+
 export interface UserSetting {
   user_id: string;
   timezone: string;
@@ -148,6 +178,17 @@ export interface ModeSwitchResponse {
   persisted: boolean;
 }
 
+export type InterventionEscalationLevel = "none" | "warning" | "paused";
+export type InterventionPauseReason = "distraction" | "leave_seat";
+
+export interface InterventionStateResponse {
+  escalation_level: InterventionEscalationLevel;
+  latest_alert: Record<string, unknown> | null;
+  pause_reason: InterventionPauseReason | null;
+  resume_countdown_sec: number | null;
+  last_update_ts: string;
+}
+
 // ── Alerts ───────────────────────────────────────────────────────────────────
 
 export interface AlertResponse {
@@ -159,5 +200,19 @@ export interface AlertResponse {
   fired_at: string;
   channel: string | null;
   message: string | null;
+  payload_json: unknown;
+}
+
+// ── AI Events ───────────────────────────────────────────────────────────────
+
+export interface AiEventResponse {
+  event_id: string;
+  user_id: string;
+  session_id: string | null;
+  event_type: string;
+  start_at: string;
+  end_at: string | null;
+  confidence: number;
+  severity: number | null;
   payload_json: unknown;
 }

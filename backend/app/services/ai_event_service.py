@@ -78,6 +78,7 @@ async def list_events(
     db: AsyncSession,
     user_id: uuid.UUID,
     *,
+    session_id: uuid.UUID | None = None,
     event_type: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -86,6 +87,8 @@ async def list_events(
 ) -> list[AiEvent]:
     stmt = select(AiEvent).where(AiEvent.user_id == user_id)
 
+    if session_id:
+        stmt = stmt.where(AiEvent.session_id == session_id)
     if event_type:
         stmt = stmt.where(AiEvent.event_type == event_type)
     if date_from:

@@ -1,4 +1,9 @@
 {
+  "ignorePatterns": [
+    "src/features/monitoring/venv/**",
+    "src/features/monitoring/wget-log/**",
+    "src/features/monitoring/models/**"
+  ],
   "extends": [
     "next/core-web-vitals",
     "next/typescript"
