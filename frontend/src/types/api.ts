@@ -94,14 +94,21 @@ export interface FocusHeatmapCell {
 export interface EnemyStats {
   date_from: string;
   date_to: string;
+  phone_detected_count: number;
+  book_detected_count: number;
   phone_book_count: number;
   drowsy_slump_count: number;
+  session_count: number;
+  phone_per_session: number;
   total_events: number;
 }
 
 export interface EngagementSummary {
   completed_focus_blocks: number;
-  total_points: number;
+  total_points: number; // Legacy field for backward compatibility
+  points_earned: number; // NEW: Points gained from focus blocks
+  points_deducted: number; // NEW: Points deducted from distractions
+  points_net: number; // NEW: Net score (earned - deducted)
   current_level: number;
   next_level_points: number;
   progress_pct: number;
@@ -187,6 +194,17 @@ export interface InterventionStateResponse {
   pause_reason: InterventionPauseReason | null;
   resume_countdown_sec: number | null;
   last_update_ts: string;
+}
+
+export interface CameraTelemetry {
+  user_id: string;
+  timestamp: string;
+  python_fps: number | null;
+  web_fps: number | null;
+  frame_latency_ms: number | null;
+  camera_resolution: string;
+  processing_resolution: string;
+  notes?: string | null;
 }
 
 // ── Alerts ───────────────────────────────────────────────────────────────────

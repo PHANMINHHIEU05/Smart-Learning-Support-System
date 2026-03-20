@@ -35,6 +35,8 @@ from app.services.monitoring_orchestrator_service import (
     MonitoringOrchestratorService,
     InterventionStateResponse,
 )
+from app.schemas.monitoring import CameraTelemetry
+from app.services import telemetry_service
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
@@ -422,4 +424,52 @@ async def get_intervention_state(
         user_id=user_id,
         session_id=session_uuid,
     )
+
+
+# ── Telemetry Endpoints ───────────────────────────────────────────────────────
+
+
+@router.post("/telemetry")
+async def post_telemetry(
+    body: dict[str, Any],
+    current_user: uuid.UUID = Depends(get_current_user),
+) -> dict[str, Any]:
+    """
+    Receive camera FPS telemetry metrics from frontend monitoring module.
+
+    Expected body:
+    {
+        "python_fps": int | null,
+        "web_fps": float | null,
+        "frame_latency_ms": int | null,
+        "camera_resolution": str (default: "640x480"),
+        "processing_resolution": str (default: "256x192"),
+        "notes": str | null
+    }
+    """
+    telemetry = CameraTelemetry(
+        user_id=current_user,
+        python_fps=body.get("python_fps"),
+        web_fps=body.get("web_fps"),
+        frame_latency_ms=body.get("frame_latency_ms"),
+        camera_resolution=body.get("camera_resolution", "640x480"),
+        processing_resolution=body.get("processing_resolution", "256x192"),
+        notes=body.get("notes"),
+    )
+    await telemetry_service.store_telemetry(telemetry)
+    return {"status": "ok", "timestamp": telemetry.timestamp}
+
+
+@router.get("/telemetry", response_model=CameraTelemetry)
+async def get_telemetry(
+    current_user: uuid.UUID = Depends(get_current_user),
+) -> CameraTelemetry:
+    """Get latest camera telemetry metrics for current user."""
+    latest = await telemetry_service.get_latest_telemetry(current_user)
+    if not latest:
+        raise HTTPException(
+            status_code=404, detail="No telemetry data available"
+        )
+    return latest
+
 

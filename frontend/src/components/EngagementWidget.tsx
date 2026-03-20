@@ -35,16 +35,37 @@ export function EngagementWidget() {
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-blue-50 border border-blue-100 px-2 py-2">
-          <p className="text-[11px] text-blue-700">Points</p>
-          <p className="text-lg font-bold text-blue-900">
-            {loading ? "..." : (summary?.total_points ?? 0)}
+      {/* Main net points display */}
+      <div className="rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-2">
+        <p className="text-[10px] text-blue-600 uppercase tracking-wide">
+          Net Points
+        </p>
+        <p className="text-2xl font-bold text-blue-900 mt-1">
+          {loading ? "..." : (summary?.points_net ?? 0)}
+        </p>
+      </div>
+
+      {/* Earned vs Deducted breakdown */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-2">
+          <p className="text-[10px] text-emerald-700 uppercase">Earned</p>
+          <p className="text-lg font-bold text-emerald-900 mt-1">
+            +{loading ? "..." : (summary?.points_earned ?? 0)}
           </p>
         </div>
-        <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-2 py-2">
-          <p className="text-[11px] text-emerald-700">Focus Blocks</p>
-          <p className="text-lg font-bold text-emerald-900">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-2 py-2">
+          <p className="text-[10px] text-red-700 uppercase">Deducted</p>
+          <p className="text-lg font-bold text-red-900 mt-1">
+            -{loading ? "..." : (summary?.points_deducted ?? 0)}
+          </p>
+        </div>
+      </div>
+
+      {/* Other stats grid */}
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg bg-blue-50 border border-blue-100 px-2 py-2">
+          <p className="text-[11px] text-blue-700">Focus Blocks</p>
+          <p className="text-lg font-bold text-blue-900">
             {loading ? "..." : (summary?.completed_focus_blocks ?? 0)}
           </p>
         </div>
@@ -52,6 +73,12 @@ export function EngagementWidget() {
           <p className="text-[11px] text-violet-700">Next Level</p>
           <p className="text-lg font-bold text-violet-900">
             {loading ? "..." : (summary?.next_level_points ?? 100)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-slate-50 border border-slate-100 px-2 py-2">
+          <p className="text-[11px] text-slate-700">Blocks/pts</p>
+          <p className="text-lg font-bold text-slate-900">
+            {loading ? "..." : (summary?.points_per_focus_block ?? 10)}
           </p>
         </div>
       </div>
@@ -68,12 +95,6 @@ export function EngagementWidget() {
           />
         </div>
       </div>
-
-      <p className="text-[11px] text-slate-500">
-        {loading
-          ? "Loading..."
-          : `${summary?.points_per_focus_block ?? 10} points per completed focus block.`}
-      </p>
     </div>
   );
 }

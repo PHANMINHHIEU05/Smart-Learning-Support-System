@@ -1,7 +1,7 @@
 from core.camera_thread import CameraThread
 from core.ai_processor import AIProcessorThread
 from ai_models.gaze_tracker import GazeTracker
-# from ai_models.phone_detector import PhoneDetector  # Đã tắt để tăng FPS
+from ai_models.phone_detector import PhoneDetector
 from ai_models.focus_calculator import FocusCalculator
 from ai_models.calibrator import Calibrator
 from ai_models.adaptive_detector import AdaptiveDetector
@@ -47,12 +47,13 @@ class MainApplication:
         
         # Frame counter để skip heavy operations
         self.frame_count = 0
-        # Phone detector ĐÃ TẮT
-        # self.PHONE_CHECK_INTERVAL = 5
+        self.enable_phone_detection = perf.ENABLE_PHONE_DETECTION
+        self.PHONE_CHECK_INTERVAL = perf.PHONE_CHECK_INTERVAL
         self.ADVANCED_STATE_INTERVAL = perf.ADVANCED_STATE_INTERVAL  # Dùng config
         self.enable_advanced_states = perf.ENABLE_ADVANCED_STATES
         self.enable_microsleep = perf.ENABLE_MICROSLEEP
-        # self.last_phone_result = (False, 0.0, [])
+        self.phone_detector = PhoneDetector() if self.enable_phone_detection else None
+        self.last_phone_result = (False, 0.0, [])
         self.last_advanced_states = {
             'is_bored': False,
             'is_dazed': False,
@@ -216,6 +217,14 @@ class MainApplication:
             gaze_ratio, gaze_dir, is_distracted = self.gaze_tracker.process(face_landmarks)
         else:
             gaze_ratio, gaze_dir, is_distracted = 0.5, "CENTER", False
+
+        # === PHONE DETECTION (nặng - chạy theo interval) ===
+        if self.enable_phone_detection and self.phone_detector is not None:
+            if self.frame_count % self.PHONE_CHECK_INTERVAL == 0:
+                self.last_phone_result = self.phone_detector.process(frame)
+            is_using_phone, phone_confidence, _phone_detections = self.last_phone_result
+        else:
+            is_using_phone, phone_confidence, _phone_detections = False, 0.0, []
         
         # === EMOTION DETECTION - ĐÃ TẮT ===
         # Không phân tích cảm xúc, luôn trả về neutral để giữ compatibility với code
@@ -259,7 +268,7 @@ class MainApplication:
                     head_roll=head_roll,
                     head_yaw=head_yaw,
                     gaze_direction=gaze_dir,
-                    is_using_phone=False,  # Phone detector đã tắt
+                    is_using_phone=is_using_phone,
                     posture_score=posture_score
                 )
                 # Lưu kết quả để dùng cho các frame khác
@@ -295,7 +304,7 @@ class MainApplication:
             emotion=emotion,
             gaze_ratio=gaze_ratio,
             is_distracted=is_distracted,
-            is_using_phone=False  # Phone detector đã tắt
+            is_using_phone=is_using_phone
         )
         
         processed_result = {
@@ -307,6 +316,8 @@ class MainApplication:
             'emotion_confidence': round(emotion_conf, 1),
             'focus_score': focus_score,
             'focus_level': self.focus_calculator.get_focus_level(),
+            'is_using_phone': is_using_phone,
+            'phone_confidence': round(phone_confidence, 1),
             # Advanced states
             'advanced_states': advanced_states,
             'is_bored': advanced_states['is_bored'],
@@ -326,9 +337,11 @@ class MainApplication:
         # Only enqueue alert-worthy states or a periodic focus update (~1/sec at 30fps).
         is_drowsy_flag = ai_result.get('is_drowsy', False)
         is_bad_posture_flag = ai_result.get('is_bad_posture', False)
-        if is_drowsy_flag or is_bad_posture_flag or is_distracted or (self.frame_count % 30 == 0):
+        if is_drowsy_flag or is_bad_posture_flag or is_distracted or is_using_phone or (self.frame_count % 30 == 0):
             if is_drowsy_flag:
                 event_type = 'drowsiness'
+            elif is_using_phone:
+                event_type = 'phone_detected'
             elif is_bad_posture_flag:
                 event_type = 'bad_posture'
             elif is_distracted:
@@ -347,6 +360,8 @@ class MainApplication:
                     'ear_avg': ear_avg,
                     'posture_score': posture_score,
                     'is_distracted': is_distracted,
+                    'is_using_phone': is_using_phone,
+                    'phone_confidence': round(phone_confidence, 1),
                     'distance_status': distance_status,
                 }),
             })
@@ -392,6 +407,7 @@ class MainApplication:
             f"Drowsy: {'YES!' if data.get('is_drowsy') else 'NO'} (EAR: {data.get('ear_avg', 0):.3f})",
             f"Posture: {data.get('posture_score', 0):.1f} {'(BAD!)' if data.get('is_bad_posture') else '(Good)'}",
             f"Gaze: {data.get('gaze_direction', 'CENTER')} {'(Distracted!)' if data.get('is_distracted') else ''}",
+            f"Phone: {'DETECTED' if data.get('is_using_phone') else 'No'} ({data.get('phone_confidence', 0):.0f}%)",
             # f"Emotion: {data.get('emotion', 'neutral')} ({data.get('emotion_confidence', 0):.0f}%)",  # ĐÃ TẮT
             f"Blink Rate: {blink_rate:.1f} blinks/min",
             f"State: {dominant_state.upper()}"
@@ -401,7 +417,7 @@ class MainApplication:
             # Focus score dùng màu đặc biệt
             text_color = color if i == 0 else (255, 255, 255)
             # Dominant state màu đỏ nếu không normal
-            if i == 6 and dominant_state != 'normal':
+            if i == 7 and dominant_state != 'normal':
                 text_color = (0, 0, 255)
             cv2.putText(frame, text, (20, y), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, text_color, 2)

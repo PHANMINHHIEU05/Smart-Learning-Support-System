@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api-client";
 import { CameraWidget } from "@/components/CameraWidget";
 import { BreakOverlay202020 } from "@/components/BreakOverlay202020";
 import { WhiteNoiseControl } from "@/components/WhiteNoiseControl";
+import { getCameraTelemetry } from "@/utils/telemetry-client";
+import { useWebFPS } from "@/hooks/useWebFPS";
 import {
   DEFAULT_CRITICAL_EVENT_TYPES,
   MODE_LABELS,
@@ -140,6 +142,7 @@ const ERGONOMIC_EVENT_TYPES = [
   "near_screen",
   "too_close",
 ];
+const PHONE_EVENT_TYPES = ["phone_detected", "DISTRACTION_PHONE"];
 
 const ERGONOMIC_REMINDER_COOLDOWN_MS = 60000;
 const ERGONOMIC_ACTIVE_WINDOW_MS = 30000;
@@ -179,6 +182,11 @@ export default function TimerPage() {
     useState(EYE_REST_OVERLAY_SEC);
   const [eyeRestNextPromptSec, setEyeRestNextPromptSec] =
     useState(EYE_REST_CADENCE_SEC);
+
+  // Telemetry state for FPS metrics
+  const [pythonFps, setPythonFps] = useState<number | null>(null);
+  const [frameLatency, setFrameLatency] = useState<number | null>(null);
+  const webFps = useWebFPS(); // Hook measures web FPS directly
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousCriticalCountRef = useRef(0);
@@ -237,6 +245,43 @@ export default function TimerPage() {
     };
   }, [timer.status, timer.session?.session_id, pollMonitoring]);
 
+  // ── Telemetry polling (FPS metrics) ─────────────────────────────────────
+  const telemetryPollingRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+
+  useEffect(() => {
+    const sessionId = timer.session?.session_id;
+    if (timer.status !== "idle" && sessionId) {
+      // Poll telemetry every 5 seconds
+      const pollTelemetry = async () => {
+        try {
+          const data = await getCameraTelemetry();
+          if (data) {
+            setPythonFps(data.python_fps);
+            setFrameLatency(data.frame_latency_ms);
+          }
+        } catch {
+          // Silently ignore telemetry fetch errors
+        }
+      };
+
+      // First poll immediately, then every 5 seconds
+      void pollTelemetry();
+      telemetryPollingRef.current = setInterval(pollTelemetry, 5000);
+    } else {
+      if (telemetryPollingRef.current) {
+        clearInterval(telemetryPollingRef.current);
+      }
+    }
+
+    return () => {
+      if (telemetryPollingRef.current) {
+        clearInterval(telemetryPollingRef.current);
+      }
+    };
+  }, [timer.status, timer.session?.session_id]);
+
   // Derived: unacked critical alerts
   const normalizedStatus = normalizeMonitoringStatus(monitoringStatus);
   const criticalEventTypes =
@@ -250,6 +295,17 @@ export default function TimerPage() {
     latestAiPayload && typeof latestAiPayload.focus_score === "number"
       ? latestAiPayload.focus_score
       : null;
+  const latestPhoneEvent = recentAiEvents.find((event) =>
+    PHONE_EVENT_TYPES.includes(event.event_type),
+  );
+  const phoneEventAgeMs = latestPhoneEvent
+    ? Date.now() - new Date(latestPhoneEvent.start_at).getTime()
+    : Number.POSITIVE_INFINITY;
+  const isPhoneDetectedLive =
+    Number.isFinite(phoneEventAgeMs) && phoneEventAgeMs <= 20000;
+  const phoneDetectionCountThisSession = recentAiEvents.filter((event) =>
+    PHONE_EVENT_TYPES.includes(event.event_type),
+  ).length;
   const aiEventAgeMs = latestAiEvent
     ? Date.now() - new Date(latestAiEvent.start_at).getTime()
     : Number.POSITIVE_INFINITY;
@@ -269,6 +325,24 @@ export default function TimerPage() {
     settings?.monitoring_mode ??
     "external_camera";
   const criticalSoundEnabled = settings?.critical_sound_enabled ?? true;
+
+  // Compute FPS status color (Green/Yellow/Red)
+  const getStatusColor = (fps: number | null): string => {
+    if (fps === null) return "gray";
+    if (fps >= 20) return "green";
+    if (fps >= 10) return "yellow";
+    return "red";
+  };
+
+  const fpsStatusColor = getStatusColor(pythonFps);
+  const fpsStatusLabel =
+    pythonFps === null
+      ? "Offline"
+      : pythonFps >= 20
+        ? "Optimal"
+        : pythonFps >= 10
+          ? "Acceptable"
+          : "Degraded";
 
   // Play a short browser beep when new critical alerts arrive (if enabled).
   useEffect(() => {
@@ -831,6 +905,12 @@ export default function TimerPage() {
             </div>
           )}
 
+          {isPhoneDetectedLive && (
+            <div className="rounded-xl bg-red-50 border border-red-300 p-3 text-sm text-red-800">
+              Phone usage detected. Put your phone down to protect focus mode.
+            </div>
+          )}
+
           {/* ── Critical alert bar ── */}
           {unackedCriticalAlerts.length > 0 && (
             <div className="rounded-xl bg-red-50 border border-red-300 p-3 space-y-2">
@@ -967,6 +1047,10 @@ export default function TimerPage() {
                   </p>
                 )}
               </div>
+              <p className="text-xs text-gray-500">
+                Phone detected in recent window:{" "}
+                {phoneDetectionCountThisSession}
+              </p>
               {/* Camera preview — shown only in in_web_widget mode */}
               {selectedMode === "in_web_widget" && (
                 <CameraWidget className="w-full aspect-video" />
@@ -1020,6 +1104,58 @@ export default function TimerPage() {
                     )}
                   </div>
                 )}
+            </div>
+          )}
+
+          {/* ── Telemetry FPS widget ── */}
+          {monitoringStatus?.status === "active" && (
+            <div
+              className={`rounded-xl p-3 space-y-2 ${
+                fpsStatusColor === "green"
+                  ? "bg-green-50 border border-green-200"
+                  : fpsStatusColor === "yellow"
+                    ? "bg-yellow-50 border border-yellow-200"
+                    : "bg-red-50 border border-red-200"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-700">
+                  📊 Performance Metrics
+                </span>
+                <span
+                  className={`text-xs font-medium px-2 py-1 rounded ${
+                    fpsStatusColor === "green"
+                      ? "bg-green-100 text-green-800"
+                      : fpsStatusColor === "yellow"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {fpsStatusLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white rounded px-2 py-1.5 border border-gray-100">
+                  <p className="text-gray-600">Python FPS</p>
+                  <p className="font-mono font-bold text-gray-900">
+                    {pythonFps !== null ? pythonFps : "—"}
+                  </p>
+                </div>
+                <div className="bg-white rounded px-2 py-1.5 border border-gray-100">
+                  <p className="text-gray-600">Web FPS</p>
+                  <p className="font-mono font-bold text-gray-900">
+                    {webFps !== null ? webFps.toFixed(1) : "—"}
+                  </p>
+                </div>
+                {frameLatency !== null && (
+                  <div className="bg-white rounded px-2 py-1.5 border border-gray-100 col-span-2">
+                    <p className="text-gray-600">Latency</p>
+                    <p className="font-mono font-bold text-gray-900">
+                      {frameLatency}ms
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

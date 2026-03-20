@@ -139,6 +139,12 @@ async def get_enemy_stats(
         SELECT
             COALESCE(COUNT(*) FILTER (
                 WHERE LOWER(event_type) LIKE '%phone%'
+            ), 0)::int AS phone_detected_count,
+            COALESCE(COUNT(*) FILTER (
+                WHERE LOWER(event_type) LIKE '%book%'
+            ), 0)::int AS book_detected_count,
+            COALESCE(COUNT(*) FILTER (
+                WHERE LOWER(event_type) LIKE '%phone%'
                    OR LOWER(event_type) LIKE '%book%'
             ), 0)::int AS phone_book_count,
             COALESCE(COUNT(*) FILTER (
@@ -147,7 +153,14 @@ async def get_enemy_stats(
                    OR LOWER(event_type) LIKE '%fatigue%'
                    OR LOWER(event_type) LIKE '%eye_closed%'
             ), 0)::int AS drowsy_slump_count,
-            COUNT(*)::int AS total_events
+                        COUNT(*)::int AS total_events,
+                        (
+                                SELECT COALESCE(COUNT(DISTINCT ss.session_id), 0)::int
+                                FROM study_sessions ss
+                                WHERE ss.user_id = :user_id
+                                    AND ss.started_at::text >= :start_iso
+                                    AND ss.started_at::text < :end_iso_exclusive
+                        ) AS session_count
         FROM ai_events
         WHERE user_id = :user_id
           AND start_at::text >= :start_iso
@@ -165,10 +178,22 @@ async def get_enemy_stats(
     )
     row = result.mappings().one()
 
+    session_count = int(row["session_count"])
+    phone_detected_count = int(row["phone_detected_count"])
+
     return EnemyStats(
         date_from=date_from,
         date_to=date_to,
+        phone_detected_count=phone_detected_count,
+        book_detected_count=int(row["book_detected_count"]),
         phone_book_count=int(row["phone_book_count"]),
         drowsy_slump_count=int(row["drowsy_slump_count"]),
+        session_count=session_count,
+        phone_per_session=round(
+            phone_detected_count / session_count,
+            2,
+        )
+        if session_count > 0
+        else 0.0,
         total_events=int(row["total_events"]),
     )

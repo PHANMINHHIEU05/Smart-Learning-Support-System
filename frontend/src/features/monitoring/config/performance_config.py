@@ -87,7 +87,8 @@ SHOW_PERFORMANCE_METRICS = False  # Chi tiết timing mỗi component
 
 # ============ FEATURE FLAGS ============
 # Tắt features không cần thiết để tăng FPS
-ENABLE_PHONE_DETECTION = False  # Đã tắt
+ENABLE_PHONE_DETECTION = True
+PHONE_CHECK_INTERVAL = 5
 ENABLE_POSE_DETECTION = True
 ENABLE_MICROSLEEP = True
 ENABLE_ADVANCED_STATES = True

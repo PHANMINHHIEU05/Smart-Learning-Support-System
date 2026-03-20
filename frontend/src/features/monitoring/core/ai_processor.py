@@ -14,6 +14,7 @@ from config import performance_config as perf
 from ai_models.drowsiness_detector import DrowsinessDetector
 from ai_models.posture_analyzer import PostureAnalyzer
 from ai_models.focus_calculator import FocusCalculator
+from utils.fps_tracker import FPSTracker
 
 
 class AIProcessorThread(threading.Thread):
@@ -46,6 +47,9 @@ class AIProcessorThread(threading.Thread):
         self.cached_result = None
         self.processing_frame_count = 0
         
+        # FPS tracking (rolling 30-frame window)
+        self.fps_tracker = FPSTracker(window_size=30)
+        
         # Thread-safe latest result cho main thread
         self._latest_result = None
         self._result_lock = threading.Lock()
@@ -58,7 +62,10 @@ class AIProcessorThread(threading.Thread):
         """Lấy AI result mới nhất - thread-safe, không block"""
         with self._result_lock:
             return self._latest_result
-    def _init_models(self) -> bool:
+
+    def get_python_fps(self) -> float:
+        """Get current Python FPS from rolling window."""
+        return self.fps_tracker.get_fps()
         try:
             print("🔄 Đang khởi tạo AI models...")
 
@@ -260,6 +267,9 @@ class AIProcessorThread(threading.Thread):
             # Cache result cho lần sau
             if perf.ENABLE_RESULT_CACHING:
                 self.cached_result = result.copy()
+            
+            # Record frame completion for FPS tracking
+            self.fps_tracker.record_frame()
             
             return result
         except Exception as e:

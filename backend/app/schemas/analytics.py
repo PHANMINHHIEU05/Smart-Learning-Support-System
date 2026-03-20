@@ -24,6 +24,10 @@ class FocusHeatmapCell(BaseModel):
 class EnemyStats(BaseModel):
     date_from: date
     date_to: date
+    phone_detected_count: int = 0
+    book_detected_count: int = 0
     phone_book_count: int = 0
     drowsy_slump_count: int = 0
+    session_count: int = 0
+    phone_per_session: float = 0.0
     total_events: int = 0

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-client";
 import { EngagementWidget } from "@/components/EngagementWidget";
-import type { DailySummary, Task } from "@/types/api";
+import type { DailySummary, EnemyStats, Task } from "@/types/api";
 
 function formatSeconds(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -30,6 +30,7 @@ function StatCard({ label, value }: StatCardProps) {
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DailySummary | null>(null);
+  const [enemyStats, setEnemyStats] = useState<EnemyStats | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,10 +41,14 @@ export default function DashboardPage() {
       apiFetch<DailySummary>(
         `/api/v1/analytics/daily-summary?target_date=${today}`,
       ),
+      apiFetch<EnemyStats>(
+        `/api/v1/analytics/enemy-stats?date_from=${today}&date_to=${today}`,
+      ),
       apiFetch<Task[]>("/api/v1/tasks/?status=todo&limit=5"),
     ])
-      .then(([sum, taskList]) => {
+      .then(([sum, enemies, taskList]) => {
         setSummary(sum);
+        setEnemyStats(enemies);
         setTasks(taskList ?? []);
       })
       .catch((e) => setError(e.message))
@@ -68,7 +73,7 @@ export default function DashboardPage() {
       )}
 
       {/* Daily summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <StatCard
           label="Focus Time"
           value={
@@ -91,7 +96,16 @@ export default function DashboardPage() {
           label="Fatigue Events"
           value={loading ? "…" : (summary?.fatigue_count ?? 0)}
         />
+        <StatCard
+          label="Phone Detections"
+          value={loading ? "…" : (enemyStats?.phone_detected_count ?? 0)}
+        />
       </div>
+
+      <p className="text-xs text-gray-500 mb-6">
+        Phone detections/session today:{" "}
+        {loading ? "…" : (enemyStats?.phone_per_session ?? 0)}
+      </p>
 
       {/* Active tasks */}
       <div className="bg-white rounded-lg shadow p-5">
