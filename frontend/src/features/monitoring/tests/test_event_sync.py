@@ -50,6 +50,7 @@ class TestBackendClient:
 
     def test_post_batch_returns_true_on_200(self):
         client = self._make_client()
+        events = [{"event_type": "focus_update"}]
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.raise_for_status = MagicMock()
@@ -60,9 +61,11 @@ class TestBackendClient:
         mock_http.post = MagicMock(return_value=mock_response)
 
         with patch("backend_client.httpx.Client", return_value=mock_http):
-            result = client.post_batch([{"event_type": "focus_update"}])
+            result = client.post_batch(events)
 
         assert result is True
+        post_kwargs = mock_http.post.call_args.kwargs
+        assert post_kwargs["json"] == {"events": events}
 
     def test_post_batch_returns_false_on_500(self):
         import httpx as httpx_mod

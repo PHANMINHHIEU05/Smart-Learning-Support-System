@@ -26,7 +26,10 @@ export default function SettingsPage() {
             s.pomodoro_cycles_before_long_break,
           ai_monitoring_enabled: s.ai_monitoring_enabled,
           retention_days: s.retention_days,
-          monitoring_mode: s.monitoring_mode ?? "external_camera",
+          monitoring_mode:
+            s.monitoring_mode === "in_web_widget"
+              ? "external_camera"
+              : (s.monitoring_mode ?? "external_camera"),
           critical_sound_enabled: s.critical_sound_enabled ?? true,
         });
       })
@@ -56,9 +59,9 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div>
-        <h1 className="text-2xl font-bold mb-6">Settings</h1>
-        <p className="text-gray-400 text-sm">Loading…</p>
+      <div className="app-page">
+        <h1 className="page-title">Settings</h1>
+        <p className="text-sm text-slate-500">Loading...</p>
       </div>
     );
   }
@@ -66,47 +69,42 @@ export default function SettingsPage() {
   if (!settings) return null;
 
   return (
-    <div className="max-w-lg">
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+    <div className="app-page">
+      <div>
+        <h1 className="page-title">Settings</h1>
+        <p className="page-subtitle">
+          Tune timer defaults, monitoring behavior, and retention controls.
+        </p>
+      </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 mb-4 text-sm">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       )}
       {saved && (
-        <div className="bg-green-50 border border-green-200 text-green-700 rounded p-3 mb-4 text-sm">
-          Settings saved ✓
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          Settings saved successfully.
         </div>
       )}
 
-      <form
-        onSubmit={handleSave}
-        className="bg-white rounded-xl shadow p-6 space-y-5"
-      >
-        {/* General */}
+      <form onSubmit={handleSave} className="surface-card p-5 md:p-7 space-y-7 max-w-3xl">
         <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            General
-          </h2>
-          <div className="space-y-3">
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Timezone
-              </span>
+          <h2 className="text-lg font-bold text-slate-900">General</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="field-label">Timezone</label>
               <input
                 type="text"
                 value={form.timezone ?? ""}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, timezone: e.target.value }))
                 }
-                className="w-40 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="field-input"
               />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Daily goal (minutes)
-              </span>
+            </div>
+            <div>
+              <label className="field-label">Daily Goal (Minutes)</label>
               <input
                 type="number"
                 min={1}
@@ -118,20 +116,15 @@ export default function SettingsPage() {
                     daily_goal_minutes: Number(e.target.value),
                   }))
                 }
-                className="w-24 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="field-input"
               />
-            </label>
+            </div>
           </div>
         </section>
 
-        <hr />
-
-        {/* Pomodoro */}
         <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Pomodoro
-          </h2>
-          <div className="space-y-3">
+          <h2 className="text-lg font-bold text-slate-900">Pomodoro</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             {[
               {
                 label: "Focus (minutes)",
@@ -140,28 +133,26 @@ export default function SettingsPage() {
                 max: 120,
               },
               {
-                label: "Short break (minutes)",
+                label: "Short Break (minutes)",
                 key: "pomodoro_break_minutes" as const,
                 min: 1,
                 max: 60,
               },
               {
-                label: "Long break (minutes)",
+                label: "Long Break (minutes)",
                 key: "pomodoro_long_break_minutes" as const,
                 min: 1,
                 max: 120,
               },
               {
-                label: "Cycles before long break",
+                label: "Cycles Before Long Break",
                 key: "pomodoro_cycles_before_long_break" as const,
                 min: 1,
                 max: 10,
               },
             ].map(({ label, key, min, max }) => (
-              <label key={key} className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">
-                  {label}
-                </span>
+              <div key={key}>
+                <label className="field-label">{label}</label>
                 <input
                   type="number"
                   min={min}
@@ -170,25 +161,18 @@ export default function SettingsPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, [key]: Number(e.target.value) }))
                   }
-                  className="w-24 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="field-input"
                 />
-              </label>
+              </div>
             ))}
           </div>
         </section>
 
-        <hr />
-
-        {/* AI Monitoring */}
         <section>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            AI Monitoring
-          </h2>
-          <div className="space-y-3">
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Enable AI monitoring
-              </span>
+          <h2 className="text-lg font-bold text-slate-900">AI Monitoring</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-700">Enable AI monitoring</span>
               <input
                 type="checkbox"
                 checked={form.ai_monitoring_enabled ?? true}
@@ -198,13 +182,11 @@ export default function SettingsPage() {
                     ai_monitoring_enabled: e.target.checked,
                   }))
                 }
-                className="w-4 h-4 text-blue-600 rounded"
+                className="h-4 w-4 rounded border-slate-300 text-cyan-600"
               />
             </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Default monitoring mode
-              </span>
+            <div>
+              <label className="field-label">Default Monitoring Mode</label>
               <select
                 value={form.monitoring_mode ?? "external_camera"}
                 onChange={(e) =>
@@ -213,17 +195,14 @@ export default function SettingsPage() {
                     monitoring_mode: e.target.value,
                   }))
                 }
-                className="w-40 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="field-select"
               >
                 <option value="external_camera">External camera</option>
-                <option value="in_web_widget">In-web widget</option>
                 <option value="alerts_only">Alerts only</option>
               </select>
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Critical alert sound
-              </span>
+            </div>
+            <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-700">Critical alert sound</span>
               <input
                 type="checkbox"
                 checked={form.critical_sound_enabled ?? true}
@@ -233,13 +212,11 @@ export default function SettingsPage() {
                     critical_sound_enabled: e.target.checked,
                   }))
                 }
-                className="w-4 h-4 text-blue-600 rounded"
+                className="h-4 w-4 rounded border-slate-300 text-cyan-600"
               />
             </label>
-            <label className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                Data retention (days)
-              </span>
+            <div>
+              <label className="field-label">Data Retention (days)</label>
               <input
                 type="number"
                 min={1}
@@ -251,19 +228,15 @@ export default function SettingsPage() {
                     retention_days: Number(e.target.value),
                   }))
                 }
-                className="w-24 border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="field-input"
               />
-            </label>
+            </div>
           </div>
         </section>
 
-        <div className="pt-2">
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full bg-blue-600 text-white rounded-lg py-2.5 font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {saving ? "Saving…" : "Save Settings"}
+        <div className="flex justify-end">
+          <button type="submit" disabled={saving} className="btn-primary disabled:opacity-60">
+            {saving ? "Saving..." : "Save Settings"}
           </button>
         </div>
       </form>

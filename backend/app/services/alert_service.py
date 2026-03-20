@@ -12,6 +12,10 @@ from app.models.ai_event import AiEvent
 from app.models.alert import Alert
 from app.models.alert_rule import AlertRule
 from app.schemas.alert_rule import AlertRuleCreate, AlertRuleUpdate
+from app.services.event_taxonomy import (
+    alert_rule_candidates_for_event,
+    normalize_rule_event_type,
+)
 
 logger = logging.getLogger("app.alert_service")
 
@@ -21,10 +25,12 @@ logger = logging.getLogger("app.alert_service")
 async def create_rule(
     db: AsyncSession, user_id: uuid.UUID, data: AlertRuleCreate
 ) -> AlertRule:
+    payload = data.model_dump()
+    payload["trigger_event_type"] = normalize_rule_event_type(payload["trigger_event_type"])
     rule = AlertRule(
         rule_id=uuid.uuid4(),
         user_id=user_id,
-        **data.model_dump(),
+        **payload,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -57,6 +63,10 @@ async def update_rule(
 ) -> AlertRule:
     rule = await get_rule(db, user_id, rule_id)
     update_data = data.model_dump(exclude_unset=True)
+    if "trigger_event_type" in update_data:
+        update_data["trigger_event_type"] = normalize_rule_event_type(
+            update_data["trigger_event_type"]
+        )
     for key, value in update_data.items():
         setattr(rule, key, value)
     rule.updated_at = datetime.now(timezone.utc)
@@ -101,10 +111,11 @@ async def evaluate_rules_for_event(
     Tìm tất cả alert_rules match → check condition → check cooldown → fire alert.
     """
     # 1. Lấy rules match event_type
+    event_type_candidates = alert_rule_candidates_for_event(event.event_type)
     stmt = select(AlertRule).where(
         AlertRule.user_id == user_id,
         AlertRule.is_enabled == True,  # noqa: E712
-        AlertRule.trigger_event_type == event.event_type,
+        func.lower(AlertRule.trigger_event_type).in_(event_type_candidates),
     )
     result = await db.execute(stmt)
     rules = result.scalars().all()

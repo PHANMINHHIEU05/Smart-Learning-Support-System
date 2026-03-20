@@ -13,7 +13,7 @@ class BackendClient:
         self._jwt_token = jwt_token
 
     def post_batch(self, events: list[dict]) -> bool:
-        """POST a list of AI event dicts to /api/v1/ai-events/batch.
+        """POST event batch payload to /api/v1/ai-events/batch.
 
         Returns True if the backend accepted the batch (2xx), False otherwise.
         The JWT token value is never logged.
@@ -32,7 +32,7 @@ class BackendClient:
             with httpx.Client(timeout=10.0) as client:
                 response = client.post(
                     f"{self._base_url}/api/v1/ai-events/batch",
-                    json=events,
+                    json={"events": events},
                     headers={"Authorization": f"Bearer {self._jwt_token}"},
                 )
 

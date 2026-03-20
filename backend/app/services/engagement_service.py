@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.engagement import EngagementSummary, PenaltyEvent, PenaltyHistoryResponse, WhiteNoisePreset
+from app.services.event_taxonomy import PENALTY_EVENT_TYPES, normalize_event_type, sql_string_list
 
 POINTS_PER_FOCUS_BLOCK = 10
 POINTS_PER_DISTRACTION_EVENT = 2  # NEW: Fixed penalty per distraction
 _LEVEL_THRESHOLDS = [0, 100, 250, 450, 700, 1000]
+_PENALTY_EVENTS_SQL = sql_string_list(PENALTY_EVENT_TYPES)
 
 _WHITE_NOISE_PRESETS: list[WhiteNoisePreset] = [
     WhiteNoisePreset(
@@ -63,33 +66,75 @@ async def _get_distraction_events_for_date(
 ) -> list[PenaltyEvent]:
     """Get all distraction events for a user on a specific date"""
     query = text(
-        """
+        f"""
         SELECT 
+            event_id::text AS event_id,
             event_type,
             start_at::text AS event_time
         FROM ai_events
         WHERE user_id = :user_id
           AND start_at::date = :target_date
-          AND LOWER(event_type) IN (
-            'distraction_phone', 'distraction_book', 'focus_offscreen',
-            'fatigue_drowsy', 'fatigue_slump', 'posture_slouch', 'leave_seat_extended'
-          )
+          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
         ORDER BY start_at DESC
         """
     )
     
     result = await db.execute(query, {"user_id": str(user_id), "target_date": target_date.isoformat()})
     rows = result.mappings().all()
-    
-    events = [
-        PenaltyEvent(
-            event_type=row["event_type"],
-            event_time=row["event_time"],
-            points_deducted=POINTS_PER_DISTRACTION_EVENT
+
+    return _build_deduped_penalty_events(rows)
+
+
+async def _get_distraction_events_all_time(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> list[PenaltyEvent]:
+    """
+    Return all penalty-eligible events for a user.
+    Dedupe is enforced by event_id to make score deduction idempotent against retries.
+    """
+    query = text(
+        f"""
+        SELECT
+            event_id::text AS event_id,
+            event_type,
+            start_at::text AS event_time
+        FROM ai_events
+        WHERE user_id = :user_id
+          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
+        ORDER BY start_at DESC
+        """
+    )
+    result = await db.execute(query, {"user_id": str(user_id)})
+    rows = result.mappings().all()
+    return _build_deduped_penalty_events(rows)
+
+
+def _build_deduped_penalty_events(rows: list[dict[str, Any]]) -> list[PenaltyEvent]:
+    deduped: list[PenaltyEvent] = []
+    seen_event_ids: set[str] = set()
+
+    for row in rows:
+        raw_event_id = row.get("event_id")
+        if isinstance(raw_event_id, str):
+            event_id = raw_event_id
+        else:
+            event_id = f"{row.get('event_type')}|{row.get('event_time')}"
+
+        if event_id in seen_event_ids:
+            continue
+        seen_event_ids.add(event_id)
+
+        deduped.append(
+            PenaltyEvent(
+                event_id=event_id,
+                event_type=normalize_event_type(str(row["event_type"])),
+                event_time=str(row["event_time"]),
+                points_deducted=POINTS_PER_DISTRACTION_EVENT,
+            )
         )
-        for row in rows
-    ]
-    return events
+
+    return deduped
 
 
 def _calculate_points_deducted(events: list[PenaltyEvent]) -> int:
@@ -120,10 +165,8 @@ async def get_engagement_summary(
     completed_blocks = int(row["completed_focus_blocks"])
     points_earned = completed_blocks * POINTS_PER_FOCUS_BLOCK
     
-    # NEW: Calculate point deductions from distraction events (today)
-    from datetime import datetime
-    today = datetime.now().date()
-    penalty_events = await _get_distraction_events_for_date(db, user_id, today)
+    # Calculate cumulative deductions using idempotent event_id dedupe.
+    penalty_events = await _get_distraction_events_all_time(db, user_id)
     points_deducted = _calculate_points_deducted(penalty_events)
     
     # NEW: Calculate net points (minimum 0)
@@ -155,18 +198,16 @@ async def get_penalty_history(
 ) -> PenaltyHistoryResponse:
     """Get penalty event history for a user within a date range"""
     query = text(
-        """
+        f"""
         SELECT 
+            event_id::text AS event_id,
             event_type,
             start_at::text AS event_time
         FROM ai_events
         WHERE user_id = :user_id
           AND start_at::date >= :date_from
           AND start_at::date <= :date_to
-          AND LOWER(event_type) IN (
-            'distraction_phone', 'distraction_book', 'focus_offscreen',
-            'fatigue_drowsy', 'fatigue_slump', 'posture_slouch', 'leave_seat_extended'
-          )
+          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
         ORDER BY start_at DESC
         """
     )
@@ -180,15 +221,8 @@ async def get_penalty_history(
         },
     )
     rows = result.mappings().all()
-    
-    penalty_events = [
-        PenaltyEvent(
-            event_type=row["event_type"],
-            event_time=row["event_time"],
-            points_deducted=POINTS_PER_DISTRACTION_EVENT,
-        )
-        for row in rows
-    ]
+
+    penalty_events = _build_deduped_penalty_events(rows)
     
     total_penalty_points = len(penalty_events) * POINTS_PER_DISTRACTION_EVENT
     

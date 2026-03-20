@@ -17,6 +17,7 @@ class EngagementSummary(BaseModel):
 
 class PenaltyEvent(BaseModel):
     """Represents a single penalty event for analytics"""
+    event_id: str | None = None
     event_type: str
     event_time: str
     points_deducted: int = 2

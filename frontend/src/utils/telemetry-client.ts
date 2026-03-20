@@ -1,6 +1,7 @@
 /**
  * Telemetry client for submitting camera FPS metrics to backend.
- * Used by monitoring overlay to report performance metrics every 5 seconds.
+ * NOTE: Live UI metrics now use WebSocket stream from CameraWidget as source of truth.
+ * This module is kept for diagnostic or future background reporting flows only.
  */
 
 export interface CameraTelemetry {
@@ -56,8 +57,7 @@ export async function postCameraTelemetry({
 }
 
 /**
- * Fetch latest camera telemetry from backend.
- * Used by monitoring overlay to display live FPS metrics.
+ * Fetch latest camera telemetry from backend for diagnostics.
  */
 export async function getCameraTelemetry(): Promise<CameraTelemetry | null> {
   try {

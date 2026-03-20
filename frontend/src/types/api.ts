@@ -115,6 +115,21 @@ export interface EngagementSummary {
   points_per_focus_block: number;
 }
 
+export interface PenaltyEvent {
+  event_id?: string | null;
+  event_type: string;
+  event_time: string;
+  points_deducted: number;
+}
+
+export interface PenaltyHistoryResponse {
+  user_id: string;
+  date_from: string;
+  date_to: string;
+  total_penalties: number;
+  events: PenaltyEvent[];
+}
+
 export interface WhiteNoisePreset {
   id: string;
   label: string;
@@ -153,7 +168,6 @@ export interface UserSettingUpdate {
 
 export type MonitoringMode =
   | "external_camera"
-  | "in_web_widget"
   | "alerts_only";
 export type MonitoringProcessStatus =
   | "idle"

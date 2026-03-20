@@ -6,10 +6,36 @@ from typing import Annotated
 import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 
 from app.core.config import settings
 
 _bearer_scheme = HTTPBearer()
+
+
+def _decode_supabase_jwt(token: str) -> dict:
+    """Xác thực access token local bằng SUPABASE_JWT_SECRET để giảm latency."""
+    try:
+        claims = jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token không hợp lệ hoặc đã hết hạn",
+        ) from exc
+
+    user_id = claims.get("sub") or claims.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token hợp lệ nhưng không chứa user id",
+        )
+
+    return {"id": user_id}
 
 
 async def _fetch_supabase_user(token: str) -> dict:
@@ -43,6 +69,25 @@ async def _fetch_supabase_user(token: str) -> dict:
     )
 
 
+async def _verify_access_token(token: str) -> dict:
+    """
+    Ưu tiên verify local để tránh network call cho mỗi request polling.
+    Fallback sang Supabase Auth API nếu local verify fail và có đủ config.
+    """
+    try:
+        return _decode_supabase_jwt(token)
+    except HTTPException as local_exc:
+        can_fallback_remote = bool(
+            settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY
+        )
+        if (
+            local_exc.status_code == status.HTTP_401_UNAUTHORIZED
+            and can_fallback_remote
+        ):
+            return await _fetch_supabase_user(token)
+        raise
+
+
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)],
 ) -> uuid.UUID:
@@ -54,7 +99,11 @@ async def get_current_user(
         async def me(user_id: uuid.UUID = Depends(get_current_user)):
             ...
     """
-    user = await _fetch_supabase_user(credentials.credentials)
+    return await get_user_id_from_bearer_token(credentials.credentials)
+
+
+async def get_user_id_from_bearer_token(token: str) -> uuid.UUID:
+    user = await _verify_access_token(token)
     user_id = user.get("id")
     if user_id is None:
         raise HTTPException(

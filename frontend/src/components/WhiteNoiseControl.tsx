@@ -129,7 +129,7 @@ export function WhiteNoiseControl({ className }: WhiteNoiseControlProps) {
 
   return (
     <div
-      className={`bg-white rounded-xl shadow p-4 space-y-3 ${className ?? ""}`}
+      className={`surface-card p-4 space-y-3 ${className ?? ""}`}
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-800">White Noise</h3>
@@ -147,7 +147,7 @@ export function WhiteNoiseControl({ className }: WhiteNoiseControlProps) {
         <select
           value={selectedPresetId}
           onChange={(e) => setSelectedPresetId(e.target.value)}
-          className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="field-select"
         >
           {(presets.length > 0
             ? presets
@@ -198,14 +198,14 @@ export function WhiteNoiseControl({ className }: WhiteNoiseControlProps) {
         {isPlaying ? (
           <button
             onClick={stopNoise}
-            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="btn-soft flex-1"
           >
             Pause
           </button>
         ) : (
           <button
             onClick={() => void startNoise()}
-            className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            className="btn-primary flex-1"
           >
             Play
           </button>

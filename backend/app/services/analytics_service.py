@@ -7,6 +7,23 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.schemas.analytics import DailySummary, EnemyStats, FocusHeatmapCell
+from app.services.event_taxonomy import (
+    DAILY_DISTRACTION_EVENT_TYPES,
+    DAILY_FATIGUE_EVENT_TYPES,
+    ENEMY_BOOK_EVENT_TYPES,
+    ENEMY_DROWSY_SLUMP_EVENT_TYPES,
+    ENEMY_PHONE_EVENT_TYPES,
+    sql_string_list,
+)
+
+_DAILY_DISTRACTION_EVENTS_SQL = sql_string_list(DAILY_DISTRACTION_EVENT_TYPES)
+_DAILY_FATIGUE_EVENTS_SQL = sql_string_list(DAILY_FATIGUE_EVENT_TYPES)
+_ENEMY_PHONE_EVENTS_SQL = sql_string_list(ENEMY_PHONE_EVENT_TYPES)
+_ENEMY_BOOK_EVENTS_SQL = sql_string_list(ENEMY_BOOK_EVENT_TYPES)
+_ENEMY_PHONE_BOOK_EVENTS_SQL = sql_string_list(
+    (*ENEMY_PHONE_EVENT_TYPES, *ENEMY_BOOK_EVENT_TYPES)
+)
+_ENEMY_DROWSY_SLUMP_EVENTS_SQL = sql_string_list(ENEMY_DROWSY_SLUMP_EVENT_TYPES)
 
 
 async def get_daily_summary(
@@ -37,14 +54,14 @@ async def get_daily_summary(
     time_row = time_result.mappings().one()
 
     # ── Query 2: Distraction & Fatigue counts ──
-    event_query = text("""
+    event_query = text(f"""
         SELECT
             COALESCE(COUNT(*) FILTER (
-                WHERE event_type IN ('DISTRACTION_PHONE', 'FOCUS_OFFSCREEN', 'ABSENT_AWAY')
+                WHERE LOWER(event_type) IN ({_DAILY_DISTRACTION_EVENTS_SQL})
             ), 0)::int AS distraction_count,
 
             COALESCE(COUNT(*) FILTER (
-                WHERE event_type LIKE 'FATIGUE%%'
+                WHERE LOWER(event_type) IN ({_DAILY_FATIGUE_EVENTS_SQL})
             ), 0)::int AS fatigue_count
         FROM ai_events
         WHERE user_id = :user_id
@@ -135,23 +152,19 @@ async def get_enemy_stats(
     end_iso_exclusive = (date_to + timedelta(days=1)).isoformat()
 
     query = text(
-        """
+        f"""
         SELECT
             COALESCE(COUNT(*) FILTER (
-                WHERE LOWER(event_type) LIKE '%phone%'
+                WHERE LOWER(event_type) IN ({_ENEMY_PHONE_EVENTS_SQL})
             ), 0)::int AS phone_detected_count,
             COALESCE(COUNT(*) FILTER (
-                WHERE LOWER(event_type) LIKE '%book%'
+                WHERE LOWER(event_type) IN ({_ENEMY_BOOK_EVENTS_SQL})
             ), 0)::int AS book_detected_count,
             COALESCE(COUNT(*) FILTER (
-                WHERE LOWER(event_type) LIKE '%phone%'
-                   OR LOWER(event_type) LIKE '%book%'
+                WHERE LOWER(event_type) IN ({_ENEMY_PHONE_BOOK_EVENTS_SQL})
             ), 0)::int AS phone_book_count,
             COALESCE(COUNT(*) FILTER (
-                WHERE LOWER(event_type) LIKE '%drows%'
-                   OR LOWER(event_type) LIKE '%slump%'
-                   OR LOWER(event_type) LIKE '%fatigue%'
-                   OR LOWER(event_type) LIKE '%eye_closed%'
+                WHERE LOWER(event_type) IN ({_ENEMY_DROWSY_SLUMP_EVENTS_SQL})
             ), 0)::int AS drowsy_slump_count,
                         COUNT(*)::int AS total_events,
                         (

@@ -28,6 +28,14 @@ class MainApplication:
         self.metrics_path = os.environ.get("MONITORING_METRICS_PATH")
         self.snapshot_interval = float(os.environ.get("MONITORING_SNAPSHOT_INTERVAL", "0.10"))
         self.snapshot_jpeg_quality = int(os.environ.get("MONITORING_SNAPSHOT_JPEG_QUALITY", "72"))
+        self.snapshot_max_width = int(os.environ.get("MONITORING_SNAPSHOT_MAX_WIDTH", "0"))
+        self.snapshot_max_height = int(os.environ.get("MONITORING_SNAPSHOT_MAX_HEIGHT", "0"))
+        self.snapshot_brightness_alpha = float(
+            os.environ.get("MONITORING_SNAPSHOT_BRIGHTNESS_ALPHA", "1.0")
+        )
+        self.snapshot_brightness_beta = float(
+            os.environ.get("MONITORING_SNAPSHOT_BRIGHTNESS_BETA", "0.0")
+        )
         self._last_snapshot_at = 0.0
         self.metrics_interval = float(os.environ.get("MONITORING_METRICS_INTERVAL", "0.50"))
         self._last_metrics_at = 0.0
@@ -99,10 +107,32 @@ class MainApplication:
         now = time.time()
         if now - self._last_snapshot_at < self.snapshot_interval:
             return
+
+        snapshot_frame = frame
+        if self.snapshot_max_width > 0 or self.snapshot_max_height > 0:
+            h, w = snapshot_frame.shape[:2]
+            max_w = self.snapshot_max_width if self.snapshot_max_width > 0 else w
+            max_h = self.snapshot_max_height if self.snapshot_max_height > 0 else h
+            scale = min(max_w / w, max_h / h, 1.0)
+            if scale < 1.0:
+                new_size = (int(w * scale), int(h * scale))
+                snapshot_frame = cv2.resize(
+                    snapshot_frame,
+                    new_size,
+                    interpolation=cv2.INTER_AREA,
+                )
+
+        if self.snapshot_brightness_alpha != 1.0 or self.snapshot_brightness_beta != 0.0:
+            snapshot_frame = cv2.convertScaleAbs(
+                snapshot_frame,
+                alpha=self.snapshot_brightness_alpha,
+                beta=self.snapshot_brightness_beta,
+            )
+
         tmp_path = f"{self.snapshot_path}.tmp"
         ok, encoded = cv2.imencode(
             ".jpg",
-            frame,
+            snapshot_frame,
             [int(cv2.IMWRITE_JPEG_QUALITY), self.snapshot_jpeg_quality],
         )
         if not ok:
@@ -345,7 +375,7 @@ class MainApplication:
             elif is_bad_posture_flag:
                 event_type = 'bad_posture'
             elif is_distracted:
-                event_type = 'distraction'
+                event_type = 'focus_offscreen'
             else:
                 event_type = 'focus_update'
             now_iso = datetime.now(timezone.utc).isoformat()

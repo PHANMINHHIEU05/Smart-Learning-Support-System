@@ -8,26 +8,30 @@ variables so it can push AI events to the backend automatically.
 
 Extended with:
 - Explicit status contract: idle | starting | active | degraded | stopped
-- Runtime mode switching: external_camera / in_web_widget / alerts_only
+- Runtime mode switching: external_camera / alerts_only
 - Session-scoped in-memory alert acknowledgements
 - Read-only severity category defaults in status payload
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import subprocess
 import tempfile
 import uuid
 import json
+import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
+from fastapi import WebSocketDisconnect
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_user_id_from_bearer_token
 from app.db.session import get_db
 from app.schemas.user_setting import UserSettingUpdate
 from app.services.user_settings_service import get_or_create_settings, update_settings
@@ -57,6 +61,9 @@ _snapshot_files: dict[str, Path] = {}
 # user_id -> json metrics path written by the monitoring subprocess
 _metrics_files: dict[str, Path] = {}
 
+# stream_ticket -> (user_id, expires_at_monotonic)
+_stream_tickets: dict[str, tuple[str, float]] = {}
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # Read-only metadata: which AI-event types belong to each severity tier.
@@ -67,6 +74,7 @@ _SEVERITY_DEFAULTS: dict[str, list[str]] = {
     "medium":   ["drowsiness", "phone_detected", "posture_deviation"],
     "soft":     ["focus_low"],
 }
+_STREAM_TICKET_TTL_SECONDS = 45.0
 
 # Absolute path to the monitoring script directory
 _MONITORING_DIR = (
@@ -103,8 +111,8 @@ class MonitoringStatusResponse(BaseModel):
 class ModeSwitchRequest(BaseModel):
     mode: str = Field(
         ...,
-        pattern=r"^(external_camera|in_web_widget|alerts_only)$",
-        description="One of: external_camera, in_web_widget, alerts_only",
+        pattern=r"^(external_camera|alerts_only)$",
+        description="One of: external_camera, alerts_only",
     )
 
 
@@ -114,6 +122,11 @@ class ModeSwitchResponse(BaseModel):
     status: Literal["idle", "starting", "active", "degraded", "stopped"]
     degraded_reason: DegradedReason | None = None
     persisted: bool
+
+
+class StreamTicketResponse(BaseModel):
+    ticket: str
+    expires_in_sec: int
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -174,6 +187,57 @@ def cleanup_all_monitoring_processes() -> None:
         _kill_user_process(key)
 
 
+def _load_metrics_payload(metrics_path: Path | None) -> dict[str, float]:
+    default_payload = {
+        "main_fps": 0.0,
+        "camera_fps": 0.0,
+        "ai_fps": 0.0,
+    }
+    if metrics_path is None or not metrics_path.exists():
+        return default_payload
+
+
+def _cleanup_expired_stream_tickets() -> None:
+    now = time.monotonic()
+    expired = [ticket for ticket, (_, expires_at) in _stream_tickets.items() if expires_at <= now]
+    for ticket in expired:
+        _stream_tickets.pop(ticket, None)
+
+
+def _issue_stream_ticket(user_id: uuid.UUID) -> str:
+    _cleanup_expired_stream_tickets()
+    ticket = uuid.uuid4().hex
+    _stream_tickets[ticket] = (
+        str(user_id),
+        time.monotonic() + _STREAM_TICKET_TTL_SECONDS,
+    )
+    return ticket
+
+
+def _consume_stream_ticket(ticket: str) -> uuid.UUID | None:
+    _cleanup_expired_stream_tickets()
+    payload = _stream_tickets.pop(ticket, None)
+    if payload is None:
+        return None
+    user_id_str, expires_at = payload
+    if expires_at <= time.monotonic():
+        return None
+    try:
+        return uuid.UUID(user_id_str)
+    except ValueError:
+        return None
+
+    try:
+        raw_payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+        return {
+            "main_fps": float(raw_payload.get("main_fps", 0.0) or 0.0),
+            "camera_fps": float(raw_payload.get("camera_fps", 0.0) or 0.0),
+            "ai_fps": float(raw_payload.get("ai_fps", 0.0) or 0.0),
+        }
+    except Exception:
+        return default_payload
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/start", response_model=MonitoringStatusResponse)
@@ -202,6 +266,9 @@ async def start_monitoring(
     # Resolve preferred mode from persisted user settings
     settings = await get_or_create_settings(db, user_id)
     mode = settings.monitoring_mode or "external_camera"
+    if mode == "in_web_widget":
+        mode = "external_camera"
+        await update_settings(db, user_id, UserSettingUpdate(monitoring_mode=mode))
     snapshot_dir = Path(tempfile.gettempdir()) / "smart-learning-monitoring"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     snapshot_path = snapshot_dir / f"{key}.jpg"
@@ -213,13 +280,17 @@ async def start_monitoring(
         **os.environ,
         "MONITORING_JWT_TOKEN": _token_from_request(request),
         "MONITORING_SESSION_ID": body.session_id,
-        "MONITORING_API_BASE_URL": "http://localhost:8000",
+        "MONITORING_API_BASE_URL": str(request.base_url).rstrip("/"),
         "MONITORING_SNAPSHOT_PATH": str(snapshot_path),
         "MONITORING_METRICS_PATH": str(metrics_path),
         "MONITORING_METRICS_INTERVAL": "0.50",
-        "MONITORING_SNAPSHOT_INTERVAL": "0.10",
-        "MONITORING_SNAPSHOT_JPEG_QUALITY": "72",
-        "MONITORING_BATCH_INTERVAL": "5",
+        "MONITORING_SNAPSHOT_INTERVAL": "0.08",
+        "MONITORING_SNAPSHOT_JPEG_QUALITY": "68",
+        "MONITORING_SNAPSHOT_MAX_WIDTH": "480",
+        "MONITORING_SNAPSHOT_MAX_HEIGHT": "360",
+        "MONITORING_SNAPSHOT_BRIGHTNESS_ALPHA": "1.12",
+        "MONITORING_SNAPSHOT_BRIGHTNESS_BETA": "10",
+        "MONITORING_BATCH_INTERVAL": "2",
         "MONITORING_RETRY_INTERVAL": "15",
     }
 
@@ -289,7 +360,7 @@ async def switch_mode(
 
     - Applied immediately when a subprocess is already running.
     - Switching to `alerts_only` terminates the subprocess.
-    - Requesting `external_camera` or `in_web_widget` while the subprocess is
+    - Requesting `external_camera` while the subprocess is
       not running degrades to `alerts_only` and reports the reason.
     - The resolved (applied) mode is always persisted to user settings.
     """
@@ -304,7 +375,7 @@ async def switch_mode(
         if requested_mode == "alerts_only":
             # Stop subprocess — only relay mode, no camera needed
             _kill_user_process(key)
-        # For external_camera / in_web_widget the subprocess keeps running;
+        # For external_camera the subprocess keeps running;
         # mode is metadata that the frontend uses to route its UI.
     else:
         # Subprocess is not running (idle / stopped / degraded)
@@ -367,32 +438,148 @@ async def get_acked_alerts(
 
 @router.get("/snapshot")
 async def get_monitoring_snapshot(
+    request: Request,
     user_id: uuid.UUID = Depends(get_current_user),
 ) -> Response:
     key = str(user_id)
     snapshot_path = _snapshot_files.get(key)
     metrics_path = _metrics_files.get(key)
     if snapshot_path is None or not snapshot_path.exists():
-      raise HTTPException(status_code=404, detail="Monitoring snapshot not available")
+        raise HTTPException(status_code=404, detail="Monitoring snapshot not available")
 
+    try:
+        snapshot_mtime_ns = snapshot_path.stat().st_mtime_ns
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Monitoring snapshot not available")
+    except OSError:
+        raise HTTPException(
+            status_code=503,
+            detail="Monitoring snapshot temporarily unavailable",
+        )
+
+    etag = f'W/"{snapshot_mtime_ns}"'
     headers = {
         "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "Pragma": "no-cache",
+        "ETag": etag,
     }
 
-    if metrics_path is not None and metrics_path.exists():
-        try:
-            payload = json.loads(metrics_path.read_text(encoding="utf-8"))
-            headers["X-Python-Fps-Main"] = str(payload.get("main_fps", 0))
-            headers["X-Python-Fps-Camera"] = str(payload.get("camera_fps", 0))
-            headers["X-Python-Fps-Ai"] = str(payload.get("ai_fps", 0))
-        except Exception:
-            pass
+    metrics_payload = _load_metrics_payload(metrics_path)
+    headers["X-Python-Fps-Main"] = str(metrics_payload["main_fps"])
+    headers["X-Python-Fps-Camera"] = str(metrics_payload["camera_fps"])
+    headers["X-Python-Fps-Ai"] = str(metrics_payload["ai_fps"])
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+
+    try:
+        payload = snapshot_path.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Monitoring snapshot not available")
+    except OSError:
+        raise HTTPException(
+            status_code=503,
+            detail="Monitoring snapshot temporarily unavailable",
+        )
 
     return Response(
-        content=snapshot_path.read_bytes(),
+        content=payload,
         media_type="image/jpeg",
         headers=headers,
+    )
+
+
+@router.websocket("/stream")
+async def stream_monitoring_snapshot(websocket: WebSocket) -> None:
+    ticket = websocket.query_params.get("ticket", "")
+    token = websocket.query_params.get("token", "")
+
+    user_id: uuid.UUID | None = None
+    if ticket:
+        user_id = _consume_stream_ticket(ticket)
+        if user_id is None:
+            await websocket.close(code=4401, reason="Invalid or expired stream ticket")
+            return
+    else:
+        if not token:
+            await websocket.close(code=4401, reason="Missing token")
+            return
+
+        try:
+            user_id = await get_user_id_from_bearer_token(token)
+        except HTTPException:
+            await websocket.close(code=4401, reason="Unauthorized")
+            return
+
+    await websocket.accept()
+    key = str(user_id)
+    last_snapshot_mtime_ns = 0
+    last_metrics_sent_at = 0.0
+    waiting_announced = False
+
+    try:
+        while True:
+            snapshot_path = _snapshot_files.get(key)
+            metrics_path = _metrics_files.get(key)
+            process_status, _ = _compute_status(key)
+
+            if process_status != "active":
+                if not waiting_announced:
+                    await websocket.send_json(
+                        {
+                            "type": "status",
+                            "ready": False,
+                            "message": "Monitoring process not active",
+                        }
+                    )
+                    waiting_announced = True
+                await asyncio.sleep(0.20)
+                continue
+
+            if snapshot_path is None or not snapshot_path.exists():
+                if not waiting_announced:
+                    await websocket.send_json(
+                        {"type": "status", "ready": False, "message": "Waiting for snapshot"}
+                    )
+                    waiting_announced = True
+                await asyncio.sleep(0.20)
+                continue
+
+            waiting_announced = False
+            snapshot_mtime_ns = snapshot_path.stat().st_mtime_ns
+
+            if snapshot_mtime_ns != last_snapshot_mtime_ns:
+                frame_bytes = await asyncio.to_thread(snapshot_path.read_bytes)
+                metrics_payload = await asyncio.to_thread(_load_metrics_payload, metrics_path)
+                await websocket.send_json({"type": "metrics", **metrics_payload})
+                await websocket.send_bytes(frame_bytes)
+                last_snapshot_mtime_ns = snapshot_mtime_ns
+                last_metrics_sent_at = time.monotonic()
+                continue
+
+            now = time.monotonic()
+            if now - last_metrics_sent_at >= 2.0:
+                metrics_payload = await asyncio.to_thread(_load_metrics_payload, metrics_path)
+                await websocket.send_json({"type": "metrics", **metrics_payload})
+                last_metrics_sent_at = now
+
+            await asyncio.sleep(0.03)
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        with suppress(Exception):
+            await websocket.close(code=1011, reason="Monitoring stream error")
+        return
+
+
+@router.post("/stream-ticket", response_model=StreamTicketResponse)
+async def issue_monitoring_stream_ticket(
+    user_id: uuid.UUID = Depends(get_current_user),
+) -> StreamTicketResponse:
+    ticket = _issue_stream_ticket(user_id)
+    return StreamTicketResponse(
+        ticket=ticket,
+        expires_in_sec=int(_STREAM_TICKET_TTL_SECONDS),
     )
 
 
@@ -435,7 +622,8 @@ async def post_telemetry(
     current_user: uuid.UUID = Depends(get_current_user),
 ) -> dict[str, Any]:
     """
-    Receive camera FPS telemetry metrics from frontend monitoring module.
+    Receive camera FPS telemetry metrics for diagnostics.
+    Live UI metrics are sourced from the WebSocket stream endpoint.
 
     Expected body:
     {
@@ -464,12 +652,10 @@ async def post_telemetry(
 async def get_telemetry(
     current_user: uuid.UUID = Depends(get_current_user),
 ) -> CameraTelemetry:
-    """Get latest camera telemetry metrics for current user."""
+    """Get latest diagnostic telemetry metrics for current user."""
     latest = await telemetry_service.get_latest_telemetry(current_user)
     if not latest:
         raise HTTPException(
             status_code=404, detail="No telemetry data available"
         )
     return latest
-
-

@@ -31,7 +31,7 @@ export function BreakOverlay202020({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-slate-200 p-5 space-y-4">
+      <div className="surface-card surface-card-strong w-full max-w-md rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold tracking-wider text-teal-700 uppercase">
             Eye Rest 20-20-20
@@ -58,13 +58,13 @@ export function BreakOverlay202020({
         <div className="grid grid-cols-2 gap-3 pt-1">
           <button
             onClick={onDismiss}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="btn-soft"
           >
             Dismiss
           </button>
           <button
             onClick={onComplete}
-            className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+            className="btn-primary"
           >
             Complete break
           </button>

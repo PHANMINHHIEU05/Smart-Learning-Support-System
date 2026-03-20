@@ -68,6 +68,19 @@ async def test_get_or_create_settings_returns_existing():
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_settings_normalizes_legacy_web_widget_mode():
+    """Legacy in_web_widget mode is auto-migrated to external_camera."""
+    uid = uuid.uuid4()
+    existing = _make_setting(uid, monitoring_mode="in_web_widget")
+    db = _mock_db_execute(return_value=existing)
+
+    result = await user_settings_service.get_or_create_settings(db, uid)
+
+    assert result.monitoring_mode == "external_camera"
+    db.flush.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_get_or_create_settings_creates_defaults_when_missing():
     """US-01-01: Creates defaults when no row exists."""
     uid = uuid.uuid4()
@@ -134,6 +147,20 @@ async def test_update_settings_only_updates_provided_fields():
     assert result.daily_goal_minutes == 100  # unchanged
 
 
+@pytest.mark.asyncio
+async def test_update_settings_normalizes_legacy_web_widget_mode():
+    """Legacy mode value is normalized during update."""
+    uid = uuid.uuid4()
+    existing = _make_setting(uid, monitoring_mode="external_camera")
+    db = _mock_db_execute(return_value=existing)
+
+    # Simulate legacy value injected from old persisted payload.
+    data = UserSettingUpdate.model_construct(monitoring_mode="in_web_widget")
+    result = await user_settings_service.update_settings(db, uid, data)
+
+    assert result.monitoring_mode == "external_camera"
+
+
 # ──────────────────────────────────────────────
 # Schema validation
 # ──────────────────────────────────────────────
@@ -156,3 +183,11 @@ def test_user_setting_update_accepts_valid_fields():
     assert data.daily_goal_minutes == 60
     assert data.ai_monitoring_enabled is False
     assert data.timezone is None
+
+
+def test_user_setting_update_rejects_legacy_web_widget_mode():
+    """Pydantic validation: in_web_widget mode has been removed."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        UserSettingUpdate(monitoring_mode="in_web_widget")

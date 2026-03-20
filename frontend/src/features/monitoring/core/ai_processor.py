@@ -66,6 +66,8 @@ class AIProcessorThread(threading.Thread):
     def get_python_fps(self) -> float:
         """Get current Python FPS from rolling window."""
         return self.fps_tracker.get_fps()
+
+    def _init_models(self) -> bool:
         try:
             print("🔄 Đang khởi tạo AI models...")
 

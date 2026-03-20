@@ -7,10 +7,10 @@ import type { Task, TaskCreate, TaskStatus, TaskUpdate } from '@/types/api'
 const STATUS_TABS: TaskStatus[] = ['todo', 'doing', 'done', 'archived']
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
-  todo: 'bg-gray-100 text-gray-700',
-  doing: 'bg-blue-100 text-blue-700',
-  done: 'bg-green-100 text-green-700',
-  archived: 'bg-yellow-100 text-yellow-700',
+  todo: 'bg-slate-100 text-slate-700',
+  doing: 'bg-cyan-100 text-cyan-800',
+  done: 'bg-emerald-100 text-emerald-800',
+  archived: 'bg-amber-100 text-amber-800',
 }
 
 const PRIORITY_LABELS: Record<number, string> = {
@@ -102,150 +102,161 @@ export default function TasksPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Tasks</h1>
+    <div className="app-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Tasks</h1>
+          <p className="page-subtitle">Manage priorities and keep focus goals visible.</p>
+        </div>
         <button
-          onClick={() => { setFormData(EMPTY_FORM); setShowModal(true) }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          onClick={() => {
+            setFormData(EMPTY_FORM)
+            setShowModal(true)
+          }}
+          className="btn-primary"
         >
-          + New Task
+          New Task
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 mb-4 text-sm">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       )}
 
-      {/* Status tabs */}
-      <div className="flex gap-2 mb-4 border-b">
-        {STATUS_TABS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setActiveTab(s)}
-            className={`px-4 py-2 text-sm font-medium capitalize border-b-2 transition-colors ${
-              activeTab === s
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-
-      {/* Task list */}
-      {loading ? (
-        <p className="text-gray-400 text-sm">Loading…</p>
-      ) : tasks.length === 0 ? (
-        <p className="text-gray-400 text-sm">No {activeTab} tasks.</p>
-      ) : (
-        <div className="space-y-2">
-          {tasks.map((task) => (
-            <div key={task.task_id} className="bg-white rounded-lg shadow px-4 py-3 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 truncate">{task.title}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  {task.subject_name && (
-                    <span className="text-xs text-gray-400">{task.subject_name}</span>
-                  )}
-                  <span className="text-xs text-gray-400">
-                    P{task.priority} — {PRIORITY_LABELS[task.priority] ?? ''}
-                  </span>
-                  {task.due_at && (
-                    <span className="text-xs text-orange-500">
-                      due {new Date(task.due_at).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Status badge + selector */}
-              <select
-                value={task.status}
-                onChange={(e) => handleStatusChange(task, e.target.value as TaskStatus)}
-                className={`text-xs px-2 py-1 rounded-full border-0 font-medium cursor-pointer ${STATUS_COLORS[task.status]}`}
-              >
-                {STATUS_TABS.map((s) => (
-                  <option key={s} value={s} className="bg-white text-gray-800">
-                    {s}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                onClick={() => handleDelete(task)}
-                className="text-red-400 hover:text-red-600 text-sm px-2"
-                aria-label="Delete task"
-              >
-                ✕
-              </button>
-            </div>
+      <div className="surface-card p-4">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {STATUS_TABS.map((status) => (
+            <button
+              key={status}
+              onClick={() => setActiveTab(status)}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] ${
+                activeTab === status
+                  ? 'border-cyan-500 bg-cyan-600 text-white shadow-md shadow-cyan-600/25'
+                  : 'border-slate-200 bg-white/80 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
+              }`}
+            >
+              {status}
+            </button>
           ))}
         </div>
-      )}
 
-      {/* Create modal */}
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading...</p>
+        ) : tasks.length === 0 ? (
+          <p className="text-sm text-slate-500">No {activeTab} tasks.</p>
+        ) : (
+          <div className="space-y-2">
+            {tasks.map((task) => (
+              <div
+                key={task.task_id}
+                className="rounded-xl border border-slate-200/80 bg-white/75 px-4 py-3"
+              >
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{task.title}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {task.subject_name && (
+                        <span className="text-xs text-slate-500">{task.subject_name}</span>
+                      )}
+                      <span className="text-xs text-slate-500">
+                        P{task.priority} - {PRIORITY_LABELS[task.priority] ?? ''}
+                      </span>
+                      {task.due_at && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                          due {new Date(task.due_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <select
+                    value={task.status}
+                    onChange={(e) => handleStatusChange(task, e.target.value as TaskStatus)}
+                    className={`rounded-full border-0 px-2 py-1 text-xs font-semibold ${STATUS_COLORS[task.status]}`}
+                  >
+                    {STATUS_TABS.map((status) => (
+                      <option key={status} value={status} className="bg-white text-slate-800">
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={() => handleDelete(task)}
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                    aria-label="Delete task"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">New Task</h2>
-            <form onSubmit={handleCreate} className="space-y-3">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm">
+          <div className="surface-card surface-card-strong w-full max-w-xl p-6 md:p-7">
+            <h2 className="text-2xl font-bold text-slate-900">New Task</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Add a precise, actionable task to keep sessions focused.
+            </p>
+
+            <form onSubmit={handleCreate} className="mt-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title <span className="text-red-500">*</span>
+                <label className="field-label">
+                  Title <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={formData.title}
                   onChange={(e) => setFormData((f) => ({ ...f, title: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="field-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label className="field-label">Description</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  rows={2}
+                  className="field-textarea"
+                  rows={3}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                  <label className="field-label">Subject</label>
                   <input
                     type="text"
                     value={formData.subject_name}
                     onChange={(e) => setFormData((f) => ({ ...f, subject_name: e.target.value }))}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="field-input"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <label className="field-label">Priority</label>
                   <select
                     value={formData.priority}
                     onChange={(e) =>
                       setFormData((f) => ({ ...f, priority: Number(e.target.value) }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="field-select"
                   >
-                    {[1, 2, 3, 4, 5].map((p) => (
-                      <option key={p} value={p}>
-                        {p} — {PRIORITY_LABELS[p]}
+                    {[1, 2, 3, 4, 5].map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority} - {PRIORITY_LABELS[priority]}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Est. minutes
-                  </label>
+                  <label className="field-label">Estimated Minutes</label>
                   <input
                     type="number"
                     min={1}
@@ -256,36 +267,32 @@ export default function TasksPage() {
                         estimated_minutes: e.target.value ? Number(e.target.value) : undefined,
                       }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="field-input"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Due date</label>
+                  <label className="field-label">Due Date</label>
                   <input
                     type="date"
                     value={formData.due_at ?? ''}
                     onChange={(e) =>
                       setFormData((f) => ({ ...f, due_at: e.target.value || undefined }))
                     }
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="field-input"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex flex-wrap justify-end gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-sm rounded border border-gray-300 hover:bg-gray-50"
+                  className="btn-soft"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 text-sm rounded bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving…' : 'Create'}
+                <button type="submit" disabled={saving} className="btn-primary disabled:opacity-60">
+                  {saving ? 'Saving...' : 'Create Task'}
                 </button>
               </div>
             </form>

@@ -19,11 +19,9 @@ interface StatCardProps {
 
 function StatCard({ label, value }: StatCardProps) {
   return (
-    <div className="bg-white rounded-lg shadow p-4">
-      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-        {label}
-      </p>
-      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+    <div className="metric-tile stagger-item">
+      <p className="metric-label">{label}</p>
+      <p className="metric-value">{value}</p>
     </div>
   );
 }
@@ -56,29 +54,29 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <Link href="/timer">
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors">
-            ▶ Start Session
-          </button>
+    <div className="app-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-subtitle">Overview of focus, distractions, and active work.</p>
+        </div>
+        <Link href="/timer" className="btn-primary">
+          Start Session
         </Link>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 mb-4 text-sm">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       )}
 
-      {/* Daily summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
         <StatCard
           label="Focus Time"
           value={
             loading
-              ? "…"
+              ? "..."
               : summary
                 ? formatSeconds(summary.total_focus_seconds)
                 : "0m"
@@ -86,63 +84,60 @@ export default function DashboardPage() {
         />
         <StatCard
           label="Sessions"
-          value={loading ? "…" : (summary?.session_count ?? 0)}
+          value={loading ? "..." : (summary?.session_count ?? 0)}
         />
         <StatCard
           label="Distractions"
-          value={loading ? "…" : (summary?.distraction_count ?? 0)}
+          value={loading ? "..." : (summary?.distraction_count ?? 0)}
         />
         <StatCard
           label="Fatigue Events"
-          value={loading ? "…" : (summary?.fatigue_count ?? 0)}
+          value={loading ? "..." : (summary?.fatigue_count ?? 0)}
         />
         <StatCard
           label="Phone Detections"
-          value={loading ? "…" : (enemyStats?.phone_detected_count ?? 0)}
+          value={loading ? "..." : (enemyStats?.phone_detected_count ?? 0)}
         />
       </div>
 
-      <p className="text-xs text-gray-500 mb-6">
-        Phone detections/session today:{" "}
-        {loading ? "…" : (enemyStats?.phone_per_session ?? 0)}
+      <p className="ui-pill w-fit">
+        Phone detections per session today: {loading ? "..." : (enemyStats?.phone_per_session ?? 0)}
       </p>
 
-      {/* Active tasks */}
-      <div className="bg-white rounded-lg shadow p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-gray-900">Active Tasks</h2>
-          <Link href="/tasks" className="text-sm text-blue-600 hover:underline">
-            View all →
+      <div className="surface-card p-5 md:p-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-bold text-slate-900">Active Tasks</h2>
+          <Link href="/tasks" className="text-sm font-semibold text-cyan-700 hover:text-cyan-800">
+            View all
           </Link>
         </div>
         {loading ? (
-          <p className="text-gray-400 text-sm">Loading…</p>
+          <p className="text-sm text-slate-500">Loading...</p>
         ) : tasks.length === 0 ? (
-          <p className="text-gray-400 text-sm">No active tasks.</p>
+          <p className="text-sm text-slate-500">No active tasks.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="space-y-2">
             {tasks.map((task) => (
-              <li key={task.task_id} className="py-2 flex items-center gap-3">
-                <span className="flex-1 text-sm font-medium text-gray-800">
-                  {task.title}
-                </span>
-                {task.subject_name && (
-                  <span className="text-xs text-gray-400">
-                    {task.subject_name}
-                  </span>
-                )}
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full capitalize">
-                  {task.status}
-                </span>
+              <li
+                key={task.task_id}
+                className="rounded-xl border border-slate-200/80 bg-white/75 px-4 py-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{task.title}</p>
+                    {task.subject_name && (
+                      <p className="mt-1 text-xs text-slate-500">{task.subject_name}</p>
+                    )}
+                  </div>
+                  <span className="ui-pill capitalize">{task.status}</span>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      <div className="mt-6">
-        <EngagementWidget />
-      </div>
+      <EngagementWidget />
     </div>
   );
 }
