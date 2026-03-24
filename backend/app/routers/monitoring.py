@@ -15,6 +15,7 @@ Extended with:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import os
 import signal
 import subprocess
@@ -26,9 +27,10 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, WebSocket
 from fastapi import WebSocketDisconnect
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user, get_user_id_from_bearer_token
@@ -39,8 +41,14 @@ from app.services.monitoring_orchestrator_service import (
     MonitoringOrchestratorService,
     InterventionStateResponse,
 )
+from app.schemas.ai_event import AiEventCreate
+from app.schemas.browser_detect import BrowserDetectResponse, PerfPayload, InterventionState
+from app.services import ai_event_service
+from app.services.browser_detect_service import browser_detect_service
 from app.schemas.monitoring import CameraTelemetry
 from app.services import telemetry_service
+from backend.app.schemas.ai_event import AiEventCreate
+from backend.app.services import ai_event_service
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
@@ -659,3 +667,146 @@ async def get_telemetry(
             status_code=404, detail="No telemetry data available"
         )
     return latest
+
+_detect_last_event_at : dict[str  , float ] = {}
+_DETECT_EVENT_THROTTLE_SEC = 1.0 
+def _allow_detect_event_emit(user_key: str) -> bool:
+    now = time.monotonic()
+    last = _detect_last_event_at.get(user_key, 0.0)
+    if now - last < _DETECT_EVENT_THROTTLE_SEC:
+        return False
+    _detect_last_event_at[user_key] = now
+    return True
+@router.post("/detect", response_model=BrowserDetectResponse)
+async def detect_from_browser_frame(
+    frame: UploadFile = File(...),
+    session_id: str = Form(...),
+    client_ts_ms: int | None = Form(default=None),
+    frame_seq: int | None = Form(default=None),
+    user_id: uuid.UUID = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BrowserDetectResponse:
+    try:
+        session_uuid = uuid.UUID(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid session_id") from exc
+
+    frame_bytes = await frame.read()
+    metrics = await asyncio.to_thread(browser_detect_service.analyze, frame_bytes)
+
+    derived_event = metrics.get("derived_event")
+    if metrics.get("ready") and derived_event and _allow_detect_event_emit(str(user_id)):
+        now_utc = datetime.now(datetime.timezone.utc)
+        try:
+            await ai_event_service.create_event(
+                db,
+                user_id,
+                AiEventCreate(
+                    session_id=session_uuid,
+                    event_type=str(derived_event),
+                    start_at=now_utc,
+                    end_at=now_utc,
+                    confidence=float(metrics.get("confidence", 0.0) or 0.0),
+                    payload_json={
+                        "source": "browser_detect_api",
+                        "client_ts_ms": client_ts_ms,
+                        "frame_seq": frame_seq,
+                        "focus_score": metrics.get("focus_score"),
+                        **metrics.get("state_flags", {}),
+                    },
+                ),
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
+    # ── Direct Response Mode (No Polling) ──────────────────────────────────────
+    # Fetch live intervention state directly instead of requiring separate polling call
+    orchestrator = MonitoringOrchestratorService()
+    intervention_state_response = await orchestrator.get_live_intervention_state(
+        db=db,
+        user_id=user_id,
+        session_id=session_uuid,
+    )
+    
+    intervention_state = InterventionState(
+        escalation_level=intervention_state_response.escalation_level,
+        pause_reason=intervention_state_response.pause_reason,
+        resume_countdown_sec=intervention_state_response.resume_countdown_sec,
+        last_update_ts=intervention_state_response.last_update_ts,
+    )
+
+    return BrowserDetectResponse(
+        ready=bool(metrics.get("ready", False)),
+        server_ts_ms=int(time.time() * 1000),
+        session_id=str(session_uuid),
+        frame_seq=frame_seq,
+        focus_score=float(metrics.get("focus_score", 0.0) or 0.0),
+        confidence=float(metrics.get("confidence", 0.0) or 0.0),
+        state_flags=metrics.get("state_flags", {}),
+        overlay=metrics.get("overlay", {}),
+        perf=PerfPayload(
+            detect_ms=int(metrics.get("detect_ms", 0) or 0),
+            server_ai_fps=float(metrics.get("server_ai_fps", 0.0) or 0.0),
+        ),
+        derived_event=str(derived_event) if derived_event else None,
+        intervention_state=intervention_state,
+    )
+@router.websocket("/alerts-stream")
+async def monitoring_alerts_stream(
+    websocket: WebSocket,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    ticket = websocket.query_params.get("ticket", "")
+    raw_session_id = websocket.query_params.get("session_id", "")
+    user_id = _consume_stream_ticket(ticket)
+    if user_id is None:
+        await websocket.close(code=4401, reason="Invalid or expired stream ticket")
+        return
+
+    try:
+        session_uuid = uuid.UUID(raw_session_id)
+    except ValueError:
+        await websocket.close(code=4400, reason="Invalid session_id")
+        return
+
+    await websocket.accept()
+    last_sent_alert_id: str | None = None
+
+    try:
+        while True:
+            rows = await db.execute(
+                text(
+                    """
+                    SELECT alert_id::text, message, payload_json, fired_at::text
+                    FROM alerts
+                    WHERE user_id = :user_id
+                    AND session_id = :session_id
+                    ORDER BY fired_at DESC
+                    LIMIT 1
+                    """
+                ),
+                {"user_id": str(user_id), "session_id": str(session_uuid)},
+            )
+            item = rows.mappings().first()
+            if item and item["alert_id"] != last_sent_alert_id:
+                payload = item.get("payload_json") or {}
+                await websocket.send_json(
+                    {
+                        "type": "alert",
+                        "session_id": str(session_uuid),
+                        "alert_id": item["alert_id"],
+                        "severity": payload.get("severity", "medium"),
+                        "event_type": payload.get("event_type"),
+                        "message": item.get("message") or "Alert",
+                        "created_at": item.get("fired_at"),
+                    }
+                )
+                last_sent_alert_id = item["alert_id"]
+
+            await asyncio.sleep(0.8)
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        with suppress(Exception):
+            await websocket.close(code=1011, reason="alerts-stream failure")
