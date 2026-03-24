@@ -8,7 +8,7 @@ variables so it can push AI events to the backend automatically.
 
 Extended with:
 - Explicit status contract: idle | starting | active | degraded | stopped
-- Runtime mode switching: external_camera / alerts_only
+- Runtime mode switching: browser_camera / alerts_only
 - Session-scoped in-memory alert acknowledgements
 - Read-only severity category defaults in status payload
 """
@@ -47,8 +47,6 @@ from app.services import ai_event_service
 from app.services.browser_detect_service import browser_detect_service
 from app.schemas.monitoring import CameraTelemetry
 from app.services import telemetry_service
-from backend.app.schemas.ai_event import AiEventCreate
-from backend.app.services import ai_event_service
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
 
@@ -83,6 +81,14 @@ _SEVERITY_DEFAULTS: dict[str, list[str]] = {
     "soft":     ["focus_low"],
 }
 _STREAM_TICKET_TTL_SECONDS = 45.0
+
+
+def _normalize_mode(mode: str | None) -> str:
+    if mode in ("in_web_widget", "external_camera"):
+        return "browser_camera"
+    if mode == "alerts_only":
+        return "alerts_only"
+    return "browser_camera"
 
 # Absolute path to the monitoring script directory
 _MONITORING_DIR = (
@@ -119,8 +125,8 @@ class MonitoringStatusResponse(BaseModel):
 class ModeSwitchRequest(BaseModel):
     mode: str = Field(
         ...,
-        pattern=r"^(external_camera|alerts_only)$",
-        description="One of: external_camera, alerts_only",
+        pattern=r"^(browser_camera|alerts_only|external_camera|in_web_widget)$",
+        description="One of: browser_camera, alerts_only (legacy external_camera/in_web_widget still accepted)",
     )
 
 
@@ -204,6 +210,16 @@ def _load_metrics_payload(metrics_path: Path | None) -> dict[str, float]:
     if metrics_path is None or not metrics_path.exists():
         return default_payload
 
+    try:
+        raw_payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+        return {
+            "main_fps": float(raw_payload.get("main_fps", 0.0) or 0.0),
+            "camera_fps": float(raw_payload.get("camera_fps", 0.0) or 0.0),
+            "ai_fps": float(raw_payload.get("ai_fps", 0.0) or 0.0),
+        }
+    except Exception:
+        return default_payload
+
 
 def _cleanup_expired_stream_tickets() -> None:
     now = time.monotonic()
@@ -235,16 +251,6 @@ def _consume_stream_ticket(ticket: str) -> uuid.UUID | None:
     except ValueError:
         return None
 
-    try:
-        raw_payload = json.loads(metrics_path.read_text(encoding="utf-8"))
-        return {
-            "main_fps": float(raw_payload.get("main_fps", 0.0) or 0.0),
-            "camera_fps": float(raw_payload.get("camera_fps", 0.0) or 0.0),
-            "ai_fps": float(raw_payload.get("ai_fps", 0.0) or 0.0),
-        }
-    except Exception:
-        return default_payload
-
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -273,9 +279,8 @@ async def start_monitoring(
 
     # Resolve preferred mode from persisted user settings
     settings = await get_or_create_settings(db, user_id)
-    mode = settings.monitoring_mode or "external_camera"
-    if mode == "in_web_widget":
-        mode = "external_camera"
+    mode = _normalize_mode(settings.monitoring_mode)
+    if settings.monitoring_mode != mode:
         await update_settings(db, user_id, UserSettingUpdate(monitoring_mode=mode))
     snapshot_dir = Path(tempfile.gettempdir()) / "smart-learning-monitoring"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -368,12 +373,12 @@ async def switch_mode(
 
     - Applied immediately when a subprocess is already running.
     - Switching to `alerts_only` terminates the subprocess.
-    - Requesting `external_camera` while the subprocess is
+        - Requesting `browser_camera` while the subprocess is
       not running degrades to `alerts_only` and reports the reason.
     - The resolved (applied) mode is always persisted to user settings.
     """
     key = str(user_id)
-    requested_mode = body.mode
+    requested_mode = _normalize_mode(body.mode)
     status, _pid = _compute_status(key)
 
     applied_mode = requested_mode
@@ -383,7 +388,7 @@ async def switch_mode(
         if requested_mode == "alerts_only":
             # Stop subprocess — only relay mode, no camera needed
             _kill_user_process(key)
-        # For external_camera the subprocess keeps running;
+        # For browser_camera the subprocess keeps running;
         # mode is metadata that the frontend uses to route its UI.
     else:
         # Subprocess is not running (idle / stopped / degraded)

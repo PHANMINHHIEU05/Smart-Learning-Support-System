@@ -129,10 +129,7 @@ const BLOCK_COLOR: Record<BlockType, string> = {
   long_break: "text-amber-700",
 };
 
-const MONITORING_MODES = [
-  "external_camera",
-  "alerts_only",
-] as const;
+const MONITORING_MODES = ["browser_camera", "alerts_only"] as const;
 
 const ERGONOMIC_EVENT_TYPES = [
   "posture_deviation",
@@ -184,9 +181,8 @@ export default function TimerPage() {
     useState(EYE_REST_CADENCE_SEC);
 
   // WebSocket stream metrics (single source of truth for monitoring panel UI)
-  const [streamMetrics, setStreamMetrics] = useState<CameraStreamMetrics | null>(
-    null,
-  );
+  const [streamMetrics, setStreamMetrics] =
+    useState<CameraStreamMetrics | null>(null);
   const pythonFps = streamMetrics?.pythonMainFps ?? null;
   const pythonCameraFps = streamMetrics?.pythonCameraFps ?? null;
   const pythonAiFps = streamMetrics?.pythonAiFps ?? null;
@@ -295,9 +291,11 @@ export default function TimerPage() {
   const selectedModeRaw =
     normalizedStatus.activeMode ??
     settings?.monitoring_mode ??
-    "external_camera";
+    "browser_camera";
   const selectedMode =
-    selectedModeRaw === "in_web_widget" ? "external_camera" : selectedModeRaw;
+    selectedModeRaw === "in_web_widget" || selectedModeRaw === "external_camera"
+      ? "browser_camera"
+      : selectedModeRaw;
   const criticalSoundEnabled = settings?.critical_sound_enabled ?? true;
 
   // Compute FPS status color (Green/Yellow/Red)
@@ -413,9 +411,10 @@ export default function TimerPage() {
       if (settings.ai_monitoring_enabled !== false) {
         try {
           const preferredMode =
-            settings.monitoring_mode === "in_web_widget"
-              ? "external_camera"
-              : (settings.monitoring_mode ?? "external_camera");
+            settings.monitoring_mode === "in_web_widget" ||
+            settings.monitoring_mode === "external_camera"
+              ? "browser_camera"
+              : (settings.monitoring_mode ?? "browser_camera");
           const status = await apiFetch<MonitoringStatusResponse>(
             "/api/v1/monitoring/start",
             {
@@ -515,16 +514,18 @@ export default function TimerPage() {
     if (!timer.session) return;
     try {
       const preferredModeSetting =
-        settings?.monitoring_mode === "in_web_widget"
-          ? "external_camera"
+        settings?.monitoring_mode === "in_web_widget" ||
+        settings?.monitoring_mode === "external_camera"
+          ? "browser_camera"
           : settings?.monitoring_mode;
       const rawModeForRetry =
         preferredModeSetting ??
         monitoringStatus?.active_mode ??
-        "external_camera";
+        "browser_camera";
       const modeForRetry =
-        rawModeForRetry === "in_web_widget"
-          ? "external_camera"
+        rawModeForRetry === "in_web_widget" ||
+        rawModeForRetry === "external_camera"
+          ? "browser_camera"
           : rawModeForRetry;
       const status = await apiFetch<MonitoringStatusResponse>(
         "/api/v1/monitoring/start",
@@ -625,7 +626,8 @@ export default function TimerPage() {
       // Reconfigure subprocess display behavior immediately for camera modes.
       if (
         timer.session &&
-        res.applied_mode === "external_camera" &&
+        (res.applied_mode === "browser_camera" ||
+          res.applied_mode === "external_camera") &&
         (normalizedStatus.status === "active" ||
           normalizedStatus.status === "degraded")
       ) {
@@ -815,7 +817,8 @@ export default function TimerPage() {
       <div>
         <h1 className="page-title">Study Timer</h1>
         <p className="page-subtitle">
-          Keep momentum with adaptive monitoring, clear alerts, and smooth session control.
+          Keep momentum with adaptive monitoring, clear alerts, and smooth
+          session control.
         </p>
       </div>
 
@@ -855,12 +858,12 @@ export default function TimerPage() {
               {settings.ai_monitoring_enabled !== false && (
                 <p className="text-cyan-700">
                   AI monitoring:{" "}
-                  {MODE_LABELS[settings.monitoring_mode ?? "external_camera"] ??
-                    "External camera"}
+                  {MODE_LABELS[settings.monitoring_mode ?? "browser_camera"] ??
+                    "Browser camera"}
                 </p>
               )}
               {settings.ai_monitoring_enabled !== false &&
-                (settings.monitoring_mode ?? "external_camera") !==
+                (settings.monitoring_mode ?? "browser_camera") !==
                   "alerts_only" && (
                   <p className="text-cyan-700">
                     Web camera feed sẽ xuất hiện sau khi bạn bấm Start Pomodoro.
@@ -987,10 +990,7 @@ export default function TimerPage() {
                   Resume
                 </button>
               )}
-              <button
-                onClick={handleStop}
-                className="btn-danger"
-              >
+              <button onClick={handleStop} className="btn-danger">
                 Stop
               </button>
             </div>
@@ -1000,7 +1000,9 @@ export default function TimerPage() {
           {settings?.ai_monitoring_enabled !== false && (
             <div className="surface-card p-4 text-sm space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-slate-800">AI Monitoring</span>
+                <span className="font-semibold text-slate-800">
+                  AI Monitoring
+                </span>
                 {(() => {
                   const cfg = STATUS_CONFIG[normalizedStatus.status ?? "idle"];
                   return (
@@ -1036,7 +1038,9 @@ export default function TimerPage() {
                 {latestAiEvent && (
                   <p className="mt-1">
                     Last event: {latestAiEvent.event_type}
-                    {latestFocusScore !== null ? ` - Focus ${latestFocusScore}%` : ""}
+                    {latestFocusScore !== null
+                      ? ` - Focus ${latestFocusScore}%`
+                      : ""}
                   </p>
                 )}
               </div>
@@ -1074,16 +1078,18 @@ export default function TimerPage() {
                 />
               </label>
               {selectedMode !== "alerts_only" &&
-                ((normalizedStatus.status === "active" ||
-                  normalizedStatus.status === "degraded") ? (
+                (normalizedStatus.status === "active" ||
+                normalizedStatus.status === "degraded" ? (
                   <CameraWidget
+                    sessionId={timer.session?.session_id ?? null}
                     className="w-full min-h-[180px] border border-slate-200/80"
                     onMetrics={handleCameraMetrics}
                   />
                 ) : (
                   <div className="rounded-xl border border-slate-200 bg-white/70 px-3 py-3 text-xs text-slate-600">
-                    Web camera đang chờ phiên học. Nhấn <strong>Start Pomodoro</strong>{" "}
-                    để bật stream camera trên web.
+                    Web camera đang chờ phiên học. Nhấn{" "}
+                    <strong>Start Pomodoro</strong> để bật stream camera trên
+                    web.
                   </div>
                 ))}
               {normalizedStatus.status === "degraded" &&
@@ -1110,68 +1116,69 @@ export default function TimerPage() {
           )}
 
           {/* ── Telemetry FPS widget ── */}
-          {monitoringStatus?.status === "active" && selectedMode !== "alerts_only" && (
-            <div
-              className={`rounded-xl border p-3 space-y-2 ${
-                fpsStatusColor === "green"
-                  ? "border-emerald-200 bg-emerald-50"
-                  : fpsStatusColor === "yellow"
-                    ? "border-amber-200 bg-amber-50"
-                    : "border-rose-200 bg-rose-50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700">
-                  Performance Metrics
-                </span>
-                <span
-                  className={`rounded px-2 py-1 text-xs font-medium ${
-                    fpsStatusColor === "green"
-                      ? "bg-emerald-100 text-emerald-800"
-                      : fpsStatusColor === "yellow"
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-rose-100 text-rose-800"
-                  }`}
-                >
-                  {fpsStatusLabel}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
-                  <p className="text-slate-600">Python Main FPS</p>
-                  <p className="font-mono font-bold text-slate-900">
-                    {pythonFps !== null ? pythonFps : "—"}
-                  </p>
+          {monitoringStatus?.status === "active" &&
+            selectedMode !== "alerts_only" && (
+              <div
+                className={`rounded-xl border p-3 space-y-2 ${
+                  fpsStatusColor === "green"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : fpsStatusColor === "yellow"
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-rose-200 bg-rose-50"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-700">
+                    Performance Metrics
+                  </span>
+                  <span
+                    className={`rounded px-2 py-1 text-xs font-medium ${
+                      fpsStatusColor === "green"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : fpsStatusColor === "yellow"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-rose-100 text-rose-800"
+                    }`}
+                  >
+                    {fpsStatusLabel}
+                  </span>
                 </div>
-                <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
-                  <p className="text-slate-600">Web FPS</p>
-                  <p className="font-mono font-bold text-slate-900">
-                    {webFps !== null ? webFps.toFixed(1) : "—"}
-                  </p>
-                </div>
-                <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
-                  <p className="text-slate-600">Python Camera FPS</p>
-                  <p className="font-mono font-bold text-slate-900">
-                    {pythonCameraFps !== null ? pythonCameraFps : "—"}
-                  </p>
-                </div>
-                <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
-                  <p className="text-slate-600">Python AI FPS</p>
-                  <p className="font-mono font-bold text-slate-900">
-                    {pythonAiFps !== null ? pythonAiFps : "—"}
-                  </p>
-                </div>
-                {frameLatency !== null && (
-                  <div className="col-span-2 rounded border border-slate-200 bg-white/85 px-2 py-1.5">
-                    <p className="text-slate-600">Latency</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
+                    <p className="text-slate-600">Python Main FPS</p>
                     <p className="font-mono font-bold text-slate-900">
-                      {frameLatency}ms
+                      {pythonFps !== null ? pythonFps : "—"}
                     </p>
                   </div>
-                )}
+                  <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
+                    <p className="text-slate-600">Web FPS</p>
+                    <p className="font-mono font-bold text-slate-900">
+                      {webFps !== null ? webFps.toFixed(1) : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
+                    <p className="text-slate-600">Python Camera FPS</p>
+                    <p className="font-mono font-bold text-slate-900">
+                      {pythonCameraFps !== null ? pythonCameraFps : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded border border-slate-200 bg-white/85 px-2 py-1.5">
+                    <p className="text-slate-600">Python AI FPS</p>
+                    <p className="font-mono font-bold text-slate-900">
+                      {pythonAiFps !== null ? pythonAiFps : "—"}
+                    </p>
+                  </div>
+                  {frameLatency !== null && (
+                    <div className="col-span-2 rounded border border-slate-200 bg-white/85 px-2 py-1.5">
+                      <p className="text-slate-600">Latency</p>
+                      <p className="font-mono font-bold text-slate-900">
+                        {frameLatency}ms
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           <WhiteNoiseControl />
         </div>

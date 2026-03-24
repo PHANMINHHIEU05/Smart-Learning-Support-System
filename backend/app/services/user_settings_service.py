@@ -18,15 +18,18 @@ _DEFAULTS = {
     "pomodoro_cycles_before_long_break": 4,
     "ai_monitoring_enabled": True,
     "retention_days": 30,
-    "monitoring_mode": "external_camera",
+    "monitoring_mode": "browser_camera",
     "critical_sound_enabled": True,
 }
 
 
 def _normalize_monitoring_mode(mode: str | None) -> str | None:
-    if mode == "in_web_widget":
-        return "external_camera"
-    return mode
+    if mode in ("in_web_widget", "external_camera"):
+        return "browser_camera"
+    if mode in ("browser_camera", "alerts_only", None):
+        return mode
+    # Unknown values are normalized to browser_camera for safe fallback.
+    return "browser_camera"
 
 
 async def get_or_create_settings(db: AsyncSession, user_id: uuid.UUID) -> UserSetting:

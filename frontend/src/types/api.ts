@@ -166,9 +166,7 @@ export interface UserSettingUpdate {
 
 // ── Monitoring ──────────────────────────────────────────────────────────────
 
-export type MonitoringMode =
-  | "external_camera"
-  | "alerts_only";
+export type MonitoringMode = "browser_camera" | "alerts_only";
 export type MonitoringProcessStatus =
   | "idle"
   | "starting"

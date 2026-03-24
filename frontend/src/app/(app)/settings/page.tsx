@@ -27,9 +27,10 @@ export default function SettingsPage() {
           ai_monitoring_enabled: s.ai_monitoring_enabled,
           retention_days: s.retention_days,
           monitoring_mode:
-            s.monitoring_mode === "in_web_widget"
-              ? "external_camera"
-              : (s.monitoring_mode ?? "external_camera"),
+            s.monitoring_mode === "in_web_widget" ||
+            s.monitoring_mode === "external_camera"
+              ? "browser_camera"
+              : (s.monitoring_mode ?? "browser_camera"),
           critical_sound_enabled: s.critical_sound_enabled ?? true,
         });
       })
@@ -88,7 +89,10 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <form onSubmit={handleSave} className="surface-card p-5 md:p-7 space-y-7 max-w-3xl">
+      <form
+        onSubmit={handleSave}
+        className="surface-card p-5 md:p-7 space-y-7 max-w-3xl"
+      >
         <section>
           <h2 className="text-lg font-bold text-slate-900">General</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -172,7 +176,9 @@ export default function SettingsPage() {
           <h2 className="text-lg font-bold text-slate-900">AI Monitoring</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">Enable AI monitoring</span>
+              <span className="text-sm font-medium text-slate-700">
+                Enable AI monitoring
+              </span>
               <input
                 type="checkbox"
                 checked={form.ai_monitoring_enabled ?? true}
@@ -188,7 +194,7 @@ export default function SettingsPage() {
             <div>
               <label className="field-label">Default Monitoring Mode</label>
               <select
-                value={form.monitoring_mode ?? "external_camera"}
+                value={form.monitoring_mode ?? "browser_camera"}
                 onChange={(e) =>
                   setForm((f) => ({
                     ...f,
@@ -197,12 +203,14 @@ export default function SettingsPage() {
                 }
                 className="field-select"
               >
-                <option value="external_camera">External camera</option>
+                <option value="browser_camera">Browser camera</option>
                 <option value="alerts_only">Alerts only</option>
               </select>
             </div>
             <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">Critical alert sound</span>
+              <span className="text-sm font-medium text-slate-700">
+                Critical alert sound
+              </span>
               <input
                 type="checkbox"
                 checked={form.critical_sound_enabled ?? true}
@@ -235,7 +243,11 @@ export default function SettingsPage() {
         </section>
 
         <div className="flex justify-end">
-          <button type="submit" disabled={saving} className="btn-primary disabled:opacity-60">
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn-primary disabled:opacity-60"
+          >
             {saving ? "Saving..." : "Save Settings"}
           </button>
         </div>

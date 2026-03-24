@@ -34,7 +34,7 @@ class UserSettingUpdate(BaseModel):
     retention_days: int | None = Field(None, ge=1, le=365)
     monitoring_mode: str | None = Field(
         None,
-        pattern=r'^(external_camera|alerts_only)$',
-        description="One of: external_camera, alerts_only",
+        pattern=r'^(browser_camera|alerts_only|external_camera|in_web_widget)$',
+        description="One of: browser_camera, alerts_only (legacy external_camera/in_web_widget still accepted)",
     )
     critical_sound_enabled: bool | None = None
