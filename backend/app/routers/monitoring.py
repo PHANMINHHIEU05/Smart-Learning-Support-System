@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import os
 import signal
 import subprocess
@@ -49,6 +50,7 @@ from app.schemas.monitoring import CameraTelemetry
 from app.services import telemetry_service
 
 router = APIRouter(prefix="/api/v1/monitoring", tags=["Monitoring"])
+logger = logging.getLogger("app.monitoring")
 
 # ── In-memory registries ──────────────────────────────────────────────────────
 # user_id → subprocess.Popen  (single-process dev deployment; replace with
@@ -682,6 +684,26 @@ def _allow_detect_event_emit(user_key: str) -> bool:
         return False
     _detect_last_event_at[user_key] = now
     return True
+
+
+def _default_detect_metrics() -> dict[str, Any]:
+    return {
+        "ready": False,
+        "focus_score": 0.0,
+        "confidence": 0.0,
+        "state_flags": {
+            "is_drowsy": False,
+            "is_bad_posture": False,
+            "is_distracted": False,
+            "is_using_phone": False,
+        },
+        "overlay": {"pose_points": [], "labels": []},
+        "derived_event": None,
+        "detect_ms": 0,
+        "server_ai_fps": 0.0,
+    }
+
+
 @router.post("/detect", response_model=BrowserDetectResponse)
 async def detect_from_browser_frame(
     frame: UploadFile = File(...),
@@ -697,7 +719,13 @@ async def detect_from_browser_frame(
         raise HTTPException(status_code=400, detail="Invalid session_id") from exc
 
     frame_bytes = await frame.read()
-    metrics = await asyncio.to_thread(browser_detect_service.analyze, frame_bytes)
+    metrics = _default_detect_metrics()
+    try:
+        analyzed = await asyncio.to_thread(browser_detect_service.analyze, frame_bytes)
+        if isinstance(analyzed, dict):
+            metrics.update(analyzed)
+    except Exception as exc:
+        logger.exception("Detect analyze failed", exc_info=exc)
 
     derived_event = metrics.get("derived_event")
     if metrics.get("ready") and derived_event and _allow_detect_event_emit(str(user_id)):
@@ -728,12 +756,22 @@ async def detect_from_browser_frame(
     # ── Direct Response Mode (No Polling) ──────────────────────────────────────
     # Fetch live intervention state directly instead of requiring separate polling call
     orchestrator = MonitoringOrchestratorService()
-    intervention_state_response = await orchestrator.get_live_intervention_state(
-        db=db,
-        user_id=user_id,
-        session_id=session_uuid,
-    )
-    
+    try:
+        intervention_state_response = await orchestrator.get_live_intervention_state(
+            db=db,
+            user_id=user_id,
+            session_id=session_uuid,
+        )
+    except Exception as exc:
+        logger.exception("Failed to fetch intervention state", exc_info=exc)
+        intervention_state_response = InterventionStateResponse(
+            escalation_level="none",
+            latest_alert=None,
+            pause_reason=None,
+            resume_countdown_sec=None,
+            last_update_ts="",
+        )
+
     intervention_state = InterventionState(
         escalation_level=intervention_state_response.escalation_level,
         pause_reason=intervention_state_response.pause_reason,

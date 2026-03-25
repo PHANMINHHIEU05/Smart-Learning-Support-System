@@ -8,6 +8,7 @@ from mediapipe.tasks.python import vision
 from typing import Optional, Dict
 import sys
 import os
+from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import performance_config as perf
@@ -15,6 +16,10 @@ from ai_models.drowsiness_detector import DrowsinessDetector
 from ai_models.posture_analyzer import PostureAnalyzer
 from ai_models.focus_calculator import FocusCalculator
 from utils.fps_tracker import FPSTracker
+
+_MONITORING_ROOT = Path(__file__).resolve().parents[1]
+_MODEL_FACE_PATH = str(_MONITORING_ROOT / "models" / "face_landmarker.task")
+_MODEL_POSE_PATH = str(_MONITORING_ROOT / "models" / "pose_landmarker_lite.task")
 
 
 class AIProcessorThread(threading.Thread):
@@ -73,7 +78,7 @@ class AIProcessorThread(threading.Thread):
 
             # === MEDIAPIPE FACE LANDMARKER với BLENDSHAPES ===
             face_base_options = python.BaseOptions(
-                model_asset_path='models/face_landmarker.task'
+                model_asset_path=_MODEL_FACE_PATH
             )
 
             face_options = vision.FaceLandmarkerOptions(
@@ -92,7 +97,7 @@ class AIProcessorThread(threading.Thread):
             # === MEDIAPIPE POSE LANDMARKER (Tasks API) - CHỈ NẾU ENABLE ===
             if perf.ENABLE_POSE_DETECTION:
                 pose_base_options = python.BaseOptions(
-                    model_asset_path='models/pose_landmarker_lite.task'
+                    model_asset_path=_MODEL_POSE_PATH
                 )
 
                 pose_options = vision.PoseLandmarkerOptions(
