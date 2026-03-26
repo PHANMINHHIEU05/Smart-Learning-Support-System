@@ -115,32 +115,54 @@ class BrowserDetectService:
 
         data = self._last_result or {}
         focus_score = float(data.get("focus_score", 0.0) or 0.0)
+        face_distance_ipd = data.get("face_distance_ipd")
+        try:
+            face_distance_ipd = float(face_distance_ipd) if face_distance_ipd is not None else None
+        except (TypeError, ValueError):
+            face_distance_ipd = None
+
         is_drowsy = bool(data.get("is_drowsy", False))
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
+        is_too_close = bool(face_distance_ipd is not None and face_distance_ipd > 0.20)
+        is_too_far = bool(face_distance_ipd is not None and face_distance_ipd < 0.10)
 
         if is_drowsy:
             derived_event = "drowsiness"
+        elif is_too_close:
+            derived_event = "face_too_close"
+        elif is_too_far:
+            derived_event = "face_too_far"
         elif is_using_phone:
             derived_event = "phone_detected"
         elif is_bad_posture:
-            derived_event = "posture_deviation"
+            derived_event = "bad_posture"
         elif is_distracted:
             derived_event = "focus_offscreen"
         else:
             derived_event = "focus_update"
 
+        labels: list[dict[str, Any]] = [
+            {
+                "text": f"focus: {focus_score:.1f}",
+                "x": 18,
+                "y": 28,
+                "severity": "soft" if focus_score >= 70 else "medium",
+            }
+        ]
+        if is_drowsy:
+            labels.append({"text": "Warning: drowsy detected", "x": 18, "y": 52, "severity": "critical"})
+        if is_bad_posture:
+            labels.append({"text": "Warning: bad posture", "x": 18, "y": 74, "severity": "medium"})
+        if is_too_close:
+            labels.append({"text": "Warning: move farther from camera", "x": 18, "y": 96, "severity": "medium"})
+        if is_too_far:
+            labels.append({"text": "Warning: move closer to camera", "x": 18, "y": 118, "severity": "medium"})
+
         overlay = {
             "pose_points": [],
-            "labels": [
-                {
-                    "text": f"focus: {focus_score:.1f}",
-                    "x": 18,
-                    "y": 28,
-                    "severity": "soft" if focus_score >= 70 else "medium",
-                }
-            ],
+            "labels": labels,
         }
 
         return {
@@ -152,11 +174,14 @@ class BrowserDetectService:
                 "is_bad_posture": is_bad_posture,
                 "is_distracted": is_distracted,
                 "is_using_phone": is_using_phone,
+                "is_too_close": is_too_close,
+                "is_too_far": is_too_far,
             },
             "overlay": overlay,
             "derived_event": derived_event,
             "detect_ms": int((time.perf_counter() - t0) * 1000),
             "server_ai_fps": round(float(self._ai_thread.get_fps()), 1),
+            "face_distance_ipd": face_distance_ipd,
         }
 
 

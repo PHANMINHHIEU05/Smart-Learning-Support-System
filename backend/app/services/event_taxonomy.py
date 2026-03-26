@@ -12,6 +12,9 @@ _STORAGE_EVENT_TYPE_MAP: dict[str, str] = {
     "distraction_phone": "phone_detected",
     "distraction_book": "book_detected",
     "distraction": "focus_offscreen",
+    # Distance / posture positioning
+    "face_too_close": "face_too_close",
+    "face_too_far": "face_too_far",
     # Fatigue / posture
     "drowsiness": "drowsiness",
     "drowsy": "drowsiness",
@@ -36,6 +39,8 @@ _ALERT_RULE_COMPAT_ALIASES: dict[str, tuple[str, ...]] = {
     "focus_offscreen": ("distraction",),
     "drowsiness": ("drowsy", "fatigue_drowsy", "eye_closed_long"),
     "bad_posture": ("head_slump", "posture_slouch", "fatigue_slump", "posture_deviation"),
+    "face_too_close": (),
+    "face_too_far": (),
     "user_absent": ("absent_away", "leave_seat_extended"),
 }
 
@@ -46,6 +51,8 @@ _INTERVENTION_EVENT_TYPE_MAP: dict[str, str] = {
     "focus_offscreen": "phone_detected",
     "drowsiness": "drowsy",
     "bad_posture": "head_slump",
+    "face_too_close": "face_too_close",
+    "face_too_far": "face_too_far",
     "user_absent": "user_absent",
     "user_returned": "user_returned",
 }
@@ -63,6 +70,13 @@ DAILY_DISTRACTION_EVENT_TYPES: tuple[str, ...] = (
     "leave_seat_extended",
 )
 
+DAILY_POSTURE_DISTANCE_EVENT_TYPES: tuple[str, ...] = (
+    "bad_posture",
+    "face_too_close",
+    "face_too_far",
+    "posture_deviation",
+)
+
 DAILY_FATIGUE_EVENT_TYPES: tuple[str, ...] = (
     "drowsiness",
     "bad_posture",
@@ -73,6 +87,8 @@ DAILY_FATIGUE_EVENT_TYPES: tuple[str, ...] = (
     "fatigue_slump",
     "head_slump",
     "posture_deviation",
+    "face_too_close",
+    "face_too_far",
 )
 
 ENEMY_PHONE_EVENT_TYPES: tuple[str, ...] = ("phone_detected", "distraction_phone")

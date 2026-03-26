@@ -52,7 +52,7 @@ class BrowserDetectResponse(BaseModel):
     )
     state_flags: dict[str, bool] = Field(
         default_factory=dict,
-        description="State flags (is_drowsy, is_bad_posture, is_distracted, is_using_phone)"
+        description="State flags (is_drowsy, is_bad_posture, is_distracted, is_using_phone, is_too_close, is_too_far)"
     )
     overlay: dict[str, Any] = Field(
         default_factory=dict, description="Overlay data (pose_points, labels)"

@@ -6,6 +6,7 @@ import {
   postDetectFrame,
   type DetectResponse,
 } from "@/lib/monitoring/browser-detect-client";
+import { AlertBadge, type Alert } from "@/components/AlertBadge";
 
 export interface CameraStreamMetrics {
   source: "detect_api";
@@ -47,6 +48,9 @@ export function CameraWidget({
 
   const [error, setError] = useState<string | null>(null);
   const [latest, setLatest] = useState<DetectResponse | null>(null);
+  const [recentAlerts, setRecentAlerts] = useState<Alert[]>([]);
+  const alertHistoryRef = useRef<Set<string>>(new Set());
+  const localAlertCooldownRef = useRef<Record<string, number>>({});
 
   const statusLabel = useMemo(() => {
     if (!latest) return "Warming up";
@@ -143,6 +147,52 @@ export function CameraWidget({
       });
     };
 
+    const pushAlert = (alert: Alert) => {
+      if (alertHistoryRef.current.has(alert.id)) return;
+      alertHistoryRef.current.add(alert.id);
+      setRecentAlerts((prev) => [alert, ...prev].slice(0, 10));
+    };
+
+    const maybePushLocalAlertFromDetect = (payload: DetectResponse) => {
+      if (!payload.ready) return;
+      const eventType = payload.derived_event ?? "";
+      if (!eventType || eventType === "focus_update") return;
+
+      const now = Date.now();
+      const cooldownMs = 7000;
+      const nextAllowedAt = localAlertCooldownRef.current[eventType] ?? 0;
+      if (now < nextAllowedAt) return;
+      localAlertCooldownRef.current[eventType] = now + cooldownMs;
+
+      const severity: Alert["severity"] =
+        eventType === "drowsiness" || eventType === "phone_detected"
+          ? "critical"
+          : eventType === "focus_offscreen" ||
+              eventType === "bad_posture" ||
+              eventType === "posture_deviation"
+            ? "medium"
+            : "soft";
+
+      const ruleNameMap: Record<string, string> = {
+        drowsiness: "Drowsiness Warning",
+        bad_posture: "Bad Posture Warning",
+        posture_deviation: "Bad Posture Warning",
+        focus_offscreen: "Distraction Warning",
+        face_too_close: "Too Close To Screen",
+        face_too_far: "Too Far From Screen",
+        phone_detected: "Phone Detected",
+      };
+
+      pushAlert({
+        id: `detect-${eventType}-${now}`,
+        event_type: eventType,
+        severity,
+        message: `Phát hiện: ${eventType}`,
+        created_at: new Date(now).toISOString(),
+        rule_name: ruleNameMap[eventType],
+      });
+    };
+
     const openAlertSocket = async (sid: string) => {
       try {
         const ticket = await apiFetch<{ ticket: string }>(
@@ -162,10 +212,16 @@ export function CameraWidget({
           try {
             const msg = JSON.parse(ev.data as string);
             if (msg?.type === "alert") {
-              // Alerts are still rendered by timer polling path in this phase.
-              // This socket is enabled for live push and future UI wiring.
-              // eslint-disable-next-line no-console
-              console.debug("alert-stream", msg);
+              const alertId = msg.alert_id || `alert-${Date.now()}`;
+              const newAlert: Alert = {
+                id: alertId,
+                event_type: msg.event_type || msg.severity || "unknown",
+                severity: msg.severity || "medium",
+                message: msg.message || "Alert detected",
+                created_at: msg.created_at || new Date().toISOString(),
+                rule_name: msg.rule_name,
+              };
+              pushAlert(newAlert);
             }
           } catch {
             // ignore malformed payloads
@@ -195,12 +251,12 @@ export function CameraWidget({
           const ctx = capture.getContext("2d");
           if (!ctx) return;
 
-          capture.width = 640;
-          capture.height = 360;
+          capture.width = 480;
+          capture.height = 270;
           ctx.drawImage(video, 0, 0, capture.width, capture.height);
 
           const blob = await new Promise<Blob | null>((resolve) =>
-            capture.toBlob((b) => resolve(b), "image/jpeg", 0.68),
+            capture.toBlob((b) => resolve(b), "image/jpeg", 0.55),
           );
           if (!blob) return;
 
@@ -214,6 +270,7 @@ export function CameraWidget({
 
           if (!active) return;
           setLatest(detected);
+          maybePushLocalAlertFromDetect(detected);
           drawOverlay(detected);
           publishMetrics(detected);
           setError(null);
@@ -301,6 +358,9 @@ export function CameraWidget({
           {error}
         </div>
       ) : null}
+
+      {/* Live alerts toast */}
+      <AlertBadge alerts={recentAlerts} maxVisible={3} />
     </div>
   );
 }

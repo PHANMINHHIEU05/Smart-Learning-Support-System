@@ -20,6 +20,84 @@ from app.services.event_taxonomy import (
 logger = logging.getLogger("app.alert_service")
 
 
+_DEFAULT_ALERT_RULES: tuple[dict[str, object], ...] = (
+    {
+        "name": "Drowsiness Warning",
+        "trigger_event_type": "drowsiness",
+        "cooldown_seconds": 20,
+        "condition_json": {"minConfidence": 0.30},
+        "action_json": {"toast": True, "severity": "critical"},
+    },
+    {
+        "name": "Bad Posture Warning",
+        "trigger_event_type": "bad_posture",
+        "cooldown_seconds": 20,
+        "condition_json": {"minConfidence": 0.25},
+        "action_json": {"toast": True, "severity": "medium"},
+    },
+    {
+        "name": "Too Close To Screen",
+        "trigger_event_type": "face_too_close",
+        "cooldown_seconds": 20,
+        "condition_json": {"minConfidence": 0.20},
+        "action_json": {"toast": True, "severity": "medium"},
+    },
+    {
+        "name": "Too Far From Screen",
+        "trigger_event_type": "face_too_far",
+        "cooldown_seconds": 20,
+        "condition_json": {"minConfidence": 0.20},
+        "action_json": {"toast": True, "severity": "medium"},
+    },
+    {
+        "name": "Distraction Warning",
+        "trigger_event_type": "focus_offscreen",
+        "cooldown_seconds": 15,
+        "condition_json": {"minConfidence": 0.25},
+        "action_json": {"toast": True, "severity": "medium"},
+    },
+    {
+        "name": "Phone Detected",
+        "trigger_event_type": "phone_detected",
+        "cooldown_seconds": 15,
+        "condition_json": {"minConfidence": 0.20},
+        "action_json": {"toast": True, "severity": "critical"},
+    },
+)
+
+
+async def ensure_default_rules(db: AsyncSession, user_id: uuid.UUID) -> int:
+    stmt = select(func.count(AlertRule.rule_id)).where(AlertRule.user_id == user_id)
+    result = await db.execute(stmt)
+    total = int(result.scalar_one() or 0)
+    if total > 0:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    created = 0
+    for template in _DEFAULT_ALERT_RULES:
+        payload = dict(template)
+        trigger_event_type = normalize_rule_event_type(str(payload.pop("trigger_event_type")))
+        rule = AlertRule(
+            rule_id=uuid.uuid4(),
+            user_id=user_id,
+            name=str(payload["name"]),
+            is_enabled=True,
+            trigger_event_type=trigger_event_type,
+            cooldown_seconds=int(payload.get("cooldown_seconds", 20)),
+            condition_json=payload.get("condition_json"),
+            action_json=payload.get("action_json"),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(rule)
+        created += 1
+
+    await db.flush()
+    logger.info("Seeded %s default alert rules for user %s", created, user_id)
+    return created
+
+
 # ────────────────────────── CRUD Alert Rules ──────────────────────────
 
 async def create_rule(
@@ -134,6 +212,7 @@ async def evaluate_rules_for_event(
             continue
 
         # 2c. Fire alert!
+        action_payload = rule.action_json if isinstance(rule.action_json, dict) else {}
         alert = Alert(
             alert_id=uuid.uuid4(),
             user_id=user_id,
@@ -143,7 +222,13 @@ async def evaluate_rules_for_event(
             fired_at=now,
             channel=_get_channel(rule),
             message=f"[{rule.name}] Phát hiện: {event.event_type}",
-            payload_json=rule.action_json,
+            payload_json={
+                **action_payload,
+                "event_type": event.event_type,
+                "severity": action_payload.get("severity", event.severity or "medium"),
+                "rule_name": rule.name,
+                "confidence": event.confidence,
+            },
         )
         db.add(alert)
         logger.info("Alert fired: rule=%s, event=%s", rule.name, event.event_type)

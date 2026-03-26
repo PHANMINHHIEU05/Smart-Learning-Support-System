@@ -44,7 +44,7 @@ from app.services.monitoring_orchestrator_service import (
 )
 from app.schemas.ai_event import AiEventCreate
 from app.schemas.browser_detect import BrowserDetectResponse, PerfPayload, InterventionState
-from app.services import ai_event_service
+from app.services import ai_event_service, alert_service
 from app.services.browser_detect_service import browser_detect_service
 from app.schemas.monitoring import CameraTelemetry
 from app.services import telemetry_service
@@ -62,6 +62,9 @@ _active_modes: dict[str, str] = {}
 
 # user_id → alert_ids acknowledged in the current monitoring session
 _acked_alerts: dict[str, set[str]] = {}
+
+# user_id -> default alert rules already seeded (process-local cache)
+_default_rules_seeded: set[str] = set()
 
 # user_id -> snapshot jpeg path written by the monitoring subprocess
 _snapshot_files: dict[str, Path] = {}
@@ -278,6 +281,16 @@ async def start_monitoring(
                 "pip install -r requirements.txt"
             ),
         )
+
+    # Ensure baseline alert rules exist so warning stream works out-of-the-box.
+    try:
+        if key not in _default_rules_seeded:
+            await alert_service.ensure_default_rules(db, user_id)
+            await db.commit()
+            _default_rules_seeded.add(key)
+    except Exception:
+        await db.rollback()
+        logger.warning("Unable to seed default alert rules for user %s", key, exc_info=True)
 
     # Resolve preferred mode from persisted user settings
     settings = await get_or_create_settings(db, user_id)
@@ -718,6 +731,16 @@ async def detect_from_browser_frame(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid session_id") from exc
 
+    user_key = str(user_id)
+    try:
+        if user_key not in _default_rules_seeded:
+            await alert_service.ensure_default_rules(db, user_id)
+            await db.commit()
+            _default_rules_seeded.add(user_key)
+    except Exception:
+        await db.rollback()
+        logger.warning("Unable to seed default alert rules in detect path for user %s", user_key, exc_info=True)
+
     frame_bytes = await frame.read()
     metrics = _default_detect_metrics()
     try:
@@ -728,8 +751,8 @@ async def detect_from_browser_frame(
         logger.exception("Detect analyze failed", exc_info=exc)
 
     derived_event = metrics.get("derived_event")
-    if metrics.get("ready") and derived_event and _allow_detect_event_emit(str(user_id)):
-        now_utc = datetime.now(datetime.timezone.utc)
+    if metrics.get("ready") and derived_event and _allow_detect_event_emit(user_key):
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
         try:
             await ai_event_service.create_event(
                 db,
@@ -745,6 +768,7 @@ async def detect_from_browser_frame(
                         "client_ts_ms": client_ts_ms,
                         "frame_seq": frame_seq,
                         "focus_score": metrics.get("focus_score"),
+                        "face_distance_ipd": metrics.get("face_distance_ipd"),
                         **metrics.get("state_flags", {}),
                     },
                 ),
@@ -753,8 +777,6 @@ async def detect_from_browser_frame(
         except Exception:
             await db.rollback()
 
-    # ── Direct Response Mode (No Polling) ──────────────────────────────────────
-    # Fetch live intervention state directly instead of requiring separate polling call
     orchestrator = MonitoringOrchestratorService()
     try:
         intervention_state_response = await orchestrator.get_live_intervention_state(

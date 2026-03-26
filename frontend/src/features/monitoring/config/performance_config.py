@@ -6,7 +6,7 @@ Tối ưu FPS và Performance
 # ============ CAMERA SETTINGS ============
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
-CAMERA_FPS = 30
+CAMERA_FPS = 20
 CAMERA_BUFFER_SIZE = 1  # Giảm buffer để giảm latency
 
 # Camera hardware exposure settings
@@ -17,7 +17,7 @@ CAMERA_BRIGHTNESS = 145             # Tăng sáng tổng thể khuôn mặt rõ 
 CAMERA_GAIN = 0                     # Không gain = không nhiễu
 
 # Camera SOFTWARE image enhancement
-CAMERA_ENHANCE_IMAGE = True
+CAMERA_ENHANCE_IMAGE = False
 CAMERA_GAMMA = 1.45                 # Làm sáng vùng tối rõ hơn
 CAMERA_CONTRAST = 1.04              # Tăng nhẹ độ nổi khối
 CAMERA_BRIGHTNESS_BOOST = 16        # Bù sáng phần shadow trong phòng tối
@@ -27,17 +27,17 @@ CAMERA_CLAHE = True                 # CLAHE giúp đồng đều ánh sáng trê
 
 # ============ PROCESSING SETTINGS ============
 # Resolution để xử lý AI (nhỏ hơn camera resolution)
-PROCESSING_WIDTH = 256
-PROCESSING_HEIGHT = 192
+PROCESSING_WIDTH = 224
+PROCESSING_HEIGHT = 168
 PROCESSING_SCALE = 0.5  # Scale factor từ camera resolution
 
 # Frame skipping để tăng FPS - TĂNG MẠNH
-FACE_PROCESS_INTERVAL = 3
-POSE_PROCESS_INTERVAL = 6
-BLENDSHAPE_PROCESS_INTERVAL = 3  # TĂNG: 2→3 frames
+FACE_PROCESS_INTERVAL = 2
+POSE_PROCESS_INTERVAL = 3
+BLENDSHAPE_PROCESS_INTERVAL = 3
 
 # Advanced features interval
-ADVANCED_STATE_INTERVAL = 20
+ADVANCED_STATE_INTERVAL = 30
 # EMOTION_UPDATE_INTERVAL = 45  # ĐÃ TẮT: Không dùng emotion detection nữa
 
 # ============ MEDIAPIPE SETTINGS ============
@@ -91,9 +91,9 @@ ENABLE_PHONE_DETECTION = True
 PHONE_CHECK_INTERVAL = 5
 ENABLE_POSE_DETECTION = True
 ENABLE_MICROSLEEP = True
-ENABLE_ADVANCED_STATES = True
+ENABLE_ADVANCED_STATES = False
 ENABLE_EMOTION_DETECTION = False  # ĐÃ TẮT - Không phân tích cảm xúc
-ENABLE_BLENDSHAPES = True  # Vẫn bật để dùng cho các tính năng khác (nếu cần)
+ENABLE_BLENDSHAPES = False
 
 # ============ PRESETS ============
 def get_preset(preset_name: str) -> dict:
