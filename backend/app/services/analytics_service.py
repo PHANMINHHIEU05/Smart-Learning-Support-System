@@ -94,16 +94,47 @@ async def get_focus_heatmap(
 
     query = text(
         """
+        WITH events AS (
+            SELECT
+                start_at,
+                event_type,
+                payload_json,
+                CASE
+                    WHEN payload_json IS NOT NULL
+                         AND payload_json ? 'focus_score'
+                         AND (payload_json ->> 'focus_score') ~ '^[-+]?[0-9]*\\.?[0-9]+$'
+                    THEN (payload_json ->> 'focus_score')::float
+                    ELSE NULL
+                END AS focus_score_num
+            FROM ai_events
+            WHERE user_id = :user_id
+              AND start_at::text >= :start_iso
+              AND start_at::text < :end_iso_exclusive
+              AND (
+                (payload_json IS NOT NULL AND payload_json ? 'focus_score')
+                OR LOWER(event_type) LIKE '%focus%'
+                OR LOWER(event_type) IN (
+                    'phone_detected',
+                    'book_detected',
+                    'focus_offscreen',
+                    'user_absent',
+                    'drowsiness',
+                    'bad_posture',
+                    'face_too_close',
+                    'face_too_far'
+                )
+              )
+        )
         SELECT
             EXTRACT(ISODOW FROM start_at)::int AS day_of_week,
             (
                 EXTRACT(HOUR FROM start_at)::int * 2 +
                 CASE WHEN EXTRACT(MINUTE FROM start_at)::int >= 30 THEN 1 ELSE 0 END
             )::int AS slot_index,
-            COALESCE(AVG((payload_json ->> 'focus_score')::float), 0)::float AS avg_focus_score,
+            COALESCE(AVG(focus_score_num), 0)::float AS avg_focus_score,
             COUNT(*)::int AS event_count,
             COALESCE(COUNT(*) FILTER (
-                WHERE (payload_json ->> 'focus_score')::float >= 70
+                WHERE focus_score_num >= 70
             ), 0)::int AS focused_event_count,
             COALESCE(COUNT(*) FILTER (
                 WHERE LOWER(event_type) IN (
@@ -116,26 +147,9 @@ async def get_focus_heatmap(
                     'face_too_close',
                     'face_too_far'
                 )
-                OR (payload_json ? 'focus_score' AND (payload_json ->> 'focus_score')::float < 45)
+                                OR focus_score_num < 45
             ), 0)::int AS distracted_event_count
-        FROM ai_events
-        WHERE user_id = :user_id
-          AND start_at::text >= :start_iso
-          AND start_at::text < :end_iso_exclusive
-          AND (
-            (payload_json IS NOT NULL AND payload_json ? 'focus_score')
-            OR LOWER(event_type) LIKE '%focus%'
-            OR LOWER(event_type) IN (
-                'phone_detected',
-                'book_detected',
-                'focus_offscreen',
-                'user_absent',
-                'drowsiness',
-                'bad_posture',
-                'face_too_close',
-                'face_too_far'
-            )
-          )
+                FROM events
         GROUP BY
             EXTRACT(ISODOW FROM start_at),
             (

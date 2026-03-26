@@ -205,6 +205,24 @@ export default function TimerPage() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const sameAlertList = (a: AlertResponse[], b: AlertResponse[]) => {
+    if (a.length !== b.length) return false;
+    if (a.length === 0) return true;
+    return (
+      String(a[0]?.alert_id) === String(b[0]?.alert_id) &&
+      String(a[a.length - 1]?.alert_id) === String(b[b.length - 1]?.alert_id)
+    );
+  };
+
+  const sameEventList = (a: AiEventResponse[], b: AiEventResponse[]) => {
+    if (a.length !== b.length) return false;
+    if (a.length === 0) return true;
+    return (
+      String(a[0]?.event_id) === String(b[0]?.event_id) &&
+      String(a[a.length - 1]?.event_id) === String(b[b.length - 1]?.event_id)
+    );
+  };
+
   // ── Monitoring polling ────────────────────────────────────────────────────
   const pollMonitoring = useCallback(async (sessionId: string) => {
     try {
@@ -220,10 +238,31 @@ export default function TimerPage() {
           `/api/v1/monitoring/interventions/${sessionId}`,
         ),
       ]);
-      setMonitoringStatus(status);
-      setRecentAlerts(alerts);
-      setRecentAiEvents(events);
-      setInterventionState(intervention);
+      setMonitoringStatus((prev) => {
+        if (
+          prev?.status === status.status &&
+          prev?.active_mode === status.active_mode &&
+          prev?.pid === status.pid
+        ) {
+          return prev;
+        }
+        return status;
+      });
+      setRecentAlerts((prev) => (sameAlertList(prev, alerts) ? prev : alerts));
+      setRecentAiEvents((prev) =>
+        sameEventList(prev, events) ? prev : events,
+      );
+      setInterventionState((prev) => {
+        if (
+          prev?.escalation_level === intervention.escalation_level &&
+          prev?.pause_reason === intervention.pause_reason &&
+          prev?.resume_countdown_sec === intervention.resume_countdown_sec &&
+          prev?.last_update_ts === intervention.last_update_ts
+        ) {
+          return prev;
+        }
+        return intervention;
+      });
     } catch {
       // ignore transient poll errors — show last known state
     }
