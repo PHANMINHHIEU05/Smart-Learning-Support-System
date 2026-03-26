@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { apiFetch } from "@/lib/api-client";
 import type {
   DailySummary,
@@ -44,6 +51,8 @@ function Tile({ label, value }: TileProps) {
   );
 }
 
+const MemoTile = memo(Tile);
+
 export default function AnalyticsPage() {
   const [selectedDate, setSelectedDate] = useState<string>(
     toISODate(new Date()),
@@ -64,6 +73,10 @@ export default function AnalyticsPage() {
     useState<PenaltyHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDatePending, startDateTransition] = useTransition();
+
+  const today = useMemo(() => toISODate(new Date()), []);
+  const days = useMemo(() => last7Days(), []);
 
   useEffect(() => {
     setLoading(true);
@@ -77,7 +90,6 @@ export default function AnalyticsPage() {
   }, [selectedDate]);
 
   useEffect(() => {
-    const days = last7Days();
     Promise.allSettled(
       days.map((d) =>
         apiFetch<DailySummary>(
@@ -93,7 +105,7 @@ export default function AnalyticsPage() {
       });
       setWeekData(map);
     });
-  }, []);
+  }, [days]);
 
   useEffect(() => {
     setError(null);
@@ -123,22 +135,79 @@ export default function AnalyticsPage() {
       .catch((e) => setError(e.message));
   }, []);
 
-  const days = last7Days();
   const maxFocusSec = Math.max(
     1,
     ...days.map((d) => weekData[d]?.total_focus_seconds ?? 0),
   );
   const maxHeatmapFocusSec = Math.max(
     1,
-    ...focusHeatmap.map((cell) => cell.focus_seconds),
+    ...focusHeatmap.map((cell) => cell.event_count),
   );
+
+  const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const slotTickLabels = Array.from(
+    { length: 8 },
+    (_, i) => `${String(i * 3).padStart(2, "0")}:00`,
+  );
+  const heatmapByDay = useMemo(() => {
+    const rows: FocusHeatmapCell[][] = Array.from({ length: 7 }, () => []);
+    for (const cell of focusHeatmap) {
+      const idx = cell.day_of_week - 1;
+      if (idx >= 0 && idx < 7) {
+        rows[idx].push(cell);
+      }
+    }
+    for (const row of rows) {
+      row.sort((a, b) => a.slot_index - b.slot_index);
+    }
+    return rows;
+  }, [focusHeatmap]);
+
+  const handleSelectDate = useCallback(
+    (nextDate: string) => {
+      if (nextDate === selectedDate) return;
+      startDateTransition(() => {
+        setSelectedDate(nextDate);
+      });
+    },
+    [selectedDate],
+  );
+
+  const handleSetToday = useCallback(() => {
+    if (selectedDate === today) return;
+    startDateTransition(() => {
+      setSelectedDate(today);
+    });
+  }, [selectedDate, today]);
+
+  function heatColor(cell: FocusHeatmapCell): string {
+    if (cell.event_count === 0) {
+      return "rgb(241 245 249)";
+    }
+
+    const focusRatio =
+      cell.event_count > 0 ? cell.focused_event_count / cell.event_count : 0;
+    const distractRatio =
+      cell.event_count > 0 ? cell.distracted_event_count / cell.event_count : 0;
+    const score = Math.max(0, Math.min(100, Math.round(cell.avg_focus_score)));
+
+    if (distractRatio >= 0.5 || score < 45) {
+      return "rgb(254 202 202)";
+    }
+    if (focusRatio >= 0.65 && score >= 70) {
+      return "rgb(134 239 172)";
+    }
+    return "rgb(254 243 199)";
+  }
 
   return (
     <div className="app-page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Analytics</h1>
-          <p className="page-subtitle">Track focus trends, penalties, and distraction patterns.</p>
+          <p className="page-subtitle">
+            Track focus trends, penalties, and distraction patterns.
+          </p>
         </div>
       </div>
 
@@ -155,8 +224,9 @@ export default function AnalyticsPage() {
                 className="field-input"
               />
               <button
-                onClick={() => setSelectedDate(toISODate(new Date()))}
+                onClick={handleSetToday}
                 className="btn-soft whitespace-nowrap px-3 py-2"
+                disabled={isDatePending || selectedDate === today}
               >
                 Today
               </button>
@@ -195,7 +265,7 @@ export default function AnalyticsPage() {
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile
+        <MemoTile
           label="Focus Time"
           value={
             loading
@@ -205,19 +275,24 @@ export default function AnalyticsPage() {
                 : "0m"
           }
         />
-        <Tile label="Sessions" value={loading ? "..." : (summary?.session_count ?? 0)} />
-        <Tile
+        <MemoTile
+          label="Sessions"
+          value={loading ? "..." : (summary?.session_count ?? 0)}
+        />
+        <MemoTile
           label="Distractions"
           value={loading ? "..." : (summary?.distraction_count ?? 0)}
         />
-        <Tile
+        <MemoTile
           label="Fatigue Events"
           value={loading ? "..." : (summary?.fatigue_count ?? 0)}
         />
       </div>
 
       <div className="surface-card p-5 md:p-6">
-        <h2 className="text-xl font-bold text-slate-900">Focus Time - Last 7 Days</h2>
+        <h2 className="text-xl font-bold text-slate-900">
+          Focus Time - Last 7 Days
+        </h2>
         <div className="mt-4 flex h-36 items-end gap-2">
           {days.map((day) => {
             const data = weekData[day];
@@ -233,9 +308,10 @@ export default function AnalyticsPage() {
             return (
               <button
                 key={day}
-                onClick={() => setSelectedDate(day)}
+                onClick={() => handleSelectDate(day)}
                 className="group flex flex-1 flex-col items-center gap-1"
                 title={`${label}: ${formatSeconds(sec)}`}
+                disabled={isDatePending}
               >
                 <span className="text-xs text-slate-500 group-hover:text-cyan-700">
                   {formatSeconds(sec)}
@@ -303,7 +379,9 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="surface-card p-5 md:p-6">
-        <h2 className="text-xl font-bold text-slate-900">Top Distraction Enemies</h2>
+        <h2 className="text-xl font-bold text-slate-900">
+          Top Distraction Enemies
+        </h2>
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-4 text-sm">
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="font-semibold text-rose-700">Phone Detected</p>
@@ -347,49 +425,91 @@ export default function AnalyticsPage() {
                 className="flex items-center justify-between rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-sm"
               >
                 <div>
-                  <p className="font-semibold text-slate-800">{event.event_type}</p>
+                  <p className="font-semibold text-slate-800">
+                    {event.event_type}
+                  </p>
                   <p className="text-xs text-slate-500">
                     {new Date(event.event_time).toLocaleString()}
                   </p>
                 </div>
-                <span className="font-bold text-rose-700">-{event.points_deducted}</span>
+                <span className="font-bold text-rose-700">
+                  -{event.points_deducted}
+                </span>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-sm text-slate-500">No penalty events in this range.</p>
+          <p className="mt-3 text-sm text-slate-500">
+            No penalty events in this range.
+          </p>
         )}
       </div>
 
       <div className="surface-card p-5 md:p-6">
-        <h2 className="text-xl font-bold text-slate-900">Focus Heatmap by Hour</h2>
-        <div className="mt-4 grid grid-cols-6 gap-2 md:grid-cols-12">
-          {focusHeatmap.map((cell) => {
-            const intensity = Math.max(
-              10,
-              Math.round((cell.focus_seconds / maxHeatmapFocusSec) * 100),
-            );
-            return (
-              <div
-                key={cell.hour}
-                className="rounded-xl border border-cyan-100 px-2 py-2"
-                style={{ backgroundColor: `rgb(14 165 233 / ${intensity}%)` }}
-                title={`Hour ${String(cell.hour).padStart(2, "0")}:00 - ${formatSeconds(
-                  cell.focus_seconds,
-                )} - Score ${Math.round(cell.avg_focus_score)}`}
-              >
-                <p className="text-xs font-semibold text-sky-950">
-                  {String(cell.hour).padStart(2, "0")}:00
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-xl font-bold text-slate-900">
+            Focus Heatmap (Week x 30-min slots)
+          </h2>
+          <div className="flex items-center gap-4 text-xs text-slate-600">
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded-sm bg-green-300" /> Focus peak
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded-sm bg-amber-200" /> Neutral
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-3 w-3 rounded-sm bg-red-200" /> Distracted
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <div className="min-w-[980px]">
+            <div className="mb-2 ml-16 grid grid-cols-8 gap-1 text-[11px] text-slate-500">
+              {slotTickLabels.map((tick) => (
+                <p key={tick} className="text-center">
+                  {tick}
                 </p>
-                <p className="text-[11px] text-sky-900">
-                  {formatSeconds(cell.focus_seconds)}
-                </p>
-                <p className="text-[10px] text-sky-900/80">
-                  {Math.round(cell.avg_focus_score)}%
-                </p>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              {heatmapByDay.map((dayCells, dayIdx) => (
+                <div
+                  key={dayLabels[dayIdx]}
+                  className="flex items-center gap-2"
+                >
+                  <div className="w-14 text-xs font-semibold text-slate-600">
+                    {dayLabels[dayIdx]}
+                  </div>
+                  <div className="grid flex-1 grid-cols-48 gap-1">
+                    {dayCells.map((cell) => {
+                      const intensity = Math.max(
+                        35,
+                        Math.round(
+                          (cell.event_count / maxHeatmapFocusSec) * 100,
+                        ),
+                      );
+                      return (
+                        <div
+                          key={`${cell.day_of_week}-${cell.slot_index}`}
+                          className="h-4 rounded-sm border border-slate-200"
+                          style={{
+                            backgroundColor: heatColor(cell),
+                            opacity:
+                              cell.event_count === 0 ? 0.45 : intensity / 100,
+                          }}
+                          title={`${dayLabels[dayIdx]} ${cell.slot_label} | Avg: ${Math.round(
+                            cell.avg_focus_score,
+                          )}% | Focused: ${cell.focused_event_count} | Distracted: ${cell.distracted_event_count} | Events: ${cell.event_count}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

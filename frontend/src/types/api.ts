@@ -85,10 +85,13 @@ export interface DailySummary {
 }
 
 export interface FocusHeatmapCell {
-  hour: number;
-  focus_seconds: number;
+  day_of_week: number;
+  slot_index: number;
+  slot_label: string;
   avg_focus_score: number;
   event_count: number;
+  focused_event_count: number;
+  distracted_event_count: number;
 }
 
 export interface EnemyStats {

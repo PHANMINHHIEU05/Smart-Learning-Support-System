@@ -15,10 +15,13 @@ class DailySummary(BaseModel):
 
 
 class FocusHeatmapCell(BaseModel):
-    hour: int
-    focus_seconds: int = 0
+    day_of_week: int
+    slot_index: int
+    slot_label: str
     avg_focus_score: float = 0.0
     event_count: int = 0
+    focused_event_count: int = 0
+    distracted_event_count: int = 0
 
 
 class EnemyStats(BaseModel):

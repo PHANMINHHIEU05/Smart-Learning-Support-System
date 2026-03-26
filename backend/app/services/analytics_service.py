@@ -95,13 +95,29 @@ async def get_focus_heatmap(
     query = text(
         """
         SELECT
-            EXTRACT(HOUR FROM start_at)::int AS hour,
-            COALESCE(SUM(CASE
-                WHEN end_at IS NOT NULL THEN EXTRACT(EPOCH FROM (end_at - start_at))
-                ELSE 0
-            END), 0)::int AS focus_seconds,
+            EXTRACT(ISODOW FROM start_at)::int AS day_of_week,
+            (
+                EXTRACT(HOUR FROM start_at)::int * 2 +
+                CASE WHEN EXTRACT(MINUTE FROM start_at)::int >= 30 THEN 1 ELSE 0 END
+            )::int AS slot_index,
             COALESCE(AVG((payload_json ->> 'focus_score')::float), 0)::float AS avg_focus_score,
-            COUNT(*)::int AS event_count
+            COUNT(*)::int AS event_count,
+            COALESCE(COUNT(*) FILTER (
+                WHERE (payload_json ->> 'focus_score')::float >= 70
+            ), 0)::int AS focused_event_count,
+            COALESCE(COUNT(*) FILTER (
+                WHERE LOWER(event_type) IN (
+                    'phone_detected',
+                    'book_detected',
+                    'focus_offscreen',
+                    'user_absent',
+                    'drowsiness',
+                    'bad_posture',
+                    'face_too_close',
+                    'face_too_far'
+                )
+                OR (payload_json ? 'focus_score' AND (payload_json ->> 'focus_score')::float < 45)
+            ), 0)::int AS distracted_event_count
         FROM ai_events
         WHERE user_id = :user_id
           AND start_at::text >= :start_iso
@@ -109,9 +125,24 @@ async def get_focus_heatmap(
           AND (
             (payload_json IS NOT NULL AND payload_json ? 'focus_score')
             OR LOWER(event_type) LIKE '%focus%'
+            OR LOWER(event_type) IN (
+                'phone_detected',
+                'book_detected',
+                'focus_offscreen',
+                'user_absent',
+                'drowsiness',
+                'bad_posture',
+                'face_too_close',
+                'face_too_far'
+            )
           )
-        GROUP BY EXTRACT(HOUR FROM start_at)
-        ORDER BY hour ASC
+        GROUP BY
+            EXTRACT(ISODOW FROM start_at),
+            (
+                EXTRACT(HOUR FROM start_at)::int * 2 +
+                CASE WHEN EXTRACT(MINUTE FROM start_at)::int >= 30 THEN 1 ELSE 0 END
+            )
+        ORDER BY day_of_week ASC, slot_index ASC
         """
     )
 
@@ -124,21 +155,30 @@ async def get_focus_heatmap(
         },
     )
     rows = result.mappings().all()
-    row_by_hour = {int(r["hour"]): r for r in rows}
+    row_by_key = {
+        (int(r["day_of_week"]), int(r["slot_index"])): r
+        for r in rows
+    }
 
     heatmap: list[FocusHeatmapCell] = []
-    for hour in range(24):
-        row = row_by_hour.get(hour)
-        heatmap.append(
-            FocusHeatmapCell(
-                hour=hour,
-                focus_seconds=int(row["focus_seconds"]) if row else 0,
-                avg_focus_score=round(float(row["avg_focus_score"]), 2)
-                if row
-                else 0.0,
-                event_count=int(row["event_count"]) if row else 0,
+    for day in range(1, 8):
+        for slot in range(48):
+            row = row_by_key.get((day, slot))
+            hour = slot // 2
+            minute = 30 if slot % 2 else 0
+            heatmap.append(
+                FocusHeatmapCell(
+                    day_of_week=day,
+                    slot_index=slot,
+                    slot_label=f"{hour:02d}:{minute:02d}",
+                    avg_focus_score=round(float(row["avg_focus_score"]), 2)
+                    if row
+                    else 0.0,
+                    event_count=int(row["event_count"]) if row else 0,
+                    focused_event_count=int(row["focused_event_count"]) if row else 0,
+                    distracted_event_count=int(row["distracted_event_count"]) if row else 0,
+                )
             )
-        )
     return heatmap
 
 
