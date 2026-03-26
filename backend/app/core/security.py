@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Annotated
 
@@ -11,6 +12,8 @@ from jose import JWTError, jwt
 from app.core.config import settings
 
 _bearer_scheme = HTTPBearer()
+_TOKEN_CACHE_TTL_SEC = 45.0
+_token_user_cache: dict[str, tuple[uuid.UUID, float]] = {}
 
 
 def _decode_supabase_jwt(token: str) -> dict:
@@ -103,6 +106,11 @@ async def get_current_user(
 
 
 async def get_user_id_from_bearer_token(token: str) -> uuid.UUID:
+    now = time.monotonic()
+    cached = _token_user_cache.get(token)
+    if cached and cached[1] > now:
+        return cached[0]
+
     user = await _verify_access_token(token)
     user_id = user.get("id")
     if user_id is None:
@@ -111,7 +119,9 @@ async def get_user_id_from_bearer_token(token: str) -> uuid.UUID:
             detail="Token hợp lệ nhưng phản hồi Supabase thiếu user id",
         )
     try:
-        return uuid.UUID(user_id)
+        parsed = uuid.UUID(user_id)
+        _token_user_cache[token] = (parsed, now + _TOKEN_CACHE_TTL_SEC)
+        return parsed
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

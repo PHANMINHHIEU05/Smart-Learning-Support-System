@@ -9,7 +9,7 @@ class DrowsinessDetector:
     LEFT_EYE = {'upper': 386, 'lower': 374, 'left': 263, 'right': 362}
     RIGHT_EYE = {'upper': 159, 'lower': 145, 'left': 133, 'right': 33}
     
-    def __init__(self, ear_threshold: float = 0.2, consec_frames: int = 20):
+    def __init__(self, ear_threshold: float = 0.22, consec_frames: int = 6):
         self.ear_threshold = ear_threshold
         self.consec_frames = consec_frames
         self.eye_closed_counter = 0

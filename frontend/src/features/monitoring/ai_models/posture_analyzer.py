@@ -66,8 +66,8 @@ class PostureAnalyzer:
     
     def __init__(self, 
                  head_tilt_threshold: float = 12.0,
-                 posture_frames: int = 20,
-                 neck_threshold: float = 50.0):
+                 posture_frames: int = 6,
+                 neck_threshold: float = 55.0):
         """
         Args:
             head_tilt_threshold: Góc cúi đầu tối đa (độ)
