@@ -61,6 +61,14 @@ class BrowserDetectResponse(BaseModel):
     derived_event: str | None = Field(
         default=None, description="Derived AI event type (drowsiness, phone_detected, etc.)"
     )
+    is_calibrating: bool = Field(
+        default=False,
+        description="Whether AI runtime is currently collecting personal baseline samples"
+    )
+    calibration_progress: float = Field(
+        default=0.0,
+        description="Calibration progress percentage (0-100)"
+    )
     # ── Direct Response (No Polling) ───────────────────────────────────────────
     intervention_state: InterventionState = Field(
         ...,

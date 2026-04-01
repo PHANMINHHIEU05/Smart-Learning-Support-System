@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE, apiFetch } from "@/lib/api-client";
 import {
   postDetectFrame,
   type DetectResponse,
 } from "@/lib/monitoring/browser-detect-client";
-import { AlertBadge, type Alert } from "@/components/AlertBadge";
 
 export interface CameraStreamMetrics {
   source: "detect_api";
@@ -23,12 +21,6 @@ interface CameraWidgetProps {
   onMetrics?: (metrics: CameraStreamMetrics) => void;
 }
 
-function wsBaseFromApiBase(apiBase: string): string {
-  const parsed = new URL(apiBase);
-  parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
-  return parsed.toString();
-}
-
 export function CameraWidget({
   sessionId,
   className,
@@ -39,7 +31,6 @@ export function CameraWidget({
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const alertWsRef = useRef<WebSocket | null>(null);
   const frameSeqRef = useRef(0);
   const detectBusyRef = useRef(false);
   const frameCounterRef = useRef(0);
@@ -48,13 +39,11 @@ export function CameraWidget({
 
   const [error, setError] = useState<string | null>(null);
   const [latest, setLatest] = useState<DetectResponse | null>(null);
-  const [recentAlerts, setRecentAlerts] = useState<Alert[]>([]);
-  const alertHistoryRef = useRef<Set<string>>(new Set());
-  const localAlertCooldownRef = useRef<Record<string, number>>({});
 
   const statusLabel = useMemo(() => {
     if (!latest) return "Warming up";
     if (!latest.ready) return "Initializing AI";
+    if (latest.is_calibrating) return "Calibrating...";
     return "Live";
   }, [latest]);
 
@@ -65,10 +54,6 @@ export function CameraWidget({
       if (detectTimerRef.current) {
         clearInterval(detectTimerRef.current);
         detectTimerRef.current = null;
-      }
-      if (alertWsRef.current) {
-        alertWsRef.current.close();
-        alertWsRef.current = null;
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -147,91 +132,6 @@ export function CameraWidget({
       });
     };
 
-    const pushAlert = (alert: Alert) => {
-      if (alertHistoryRef.current.has(alert.id)) return;
-      alertHistoryRef.current.add(alert.id);
-      setRecentAlerts((prev) => [alert, ...prev].slice(0, 10));
-    };
-
-    const maybePushLocalAlertFromDetect = (payload: DetectResponse) => {
-      if (!payload.ready) return;
-      const eventType = payload.derived_event ?? "";
-      if (!eventType || eventType === "focus_update") return;
-
-      const now = Date.now();
-      const cooldownMs = 7000;
-      const nextAllowedAt = localAlertCooldownRef.current[eventType] ?? 0;
-      if (now < nextAllowedAt) return;
-      localAlertCooldownRef.current[eventType] = now + cooldownMs;
-
-      const severity: Alert["severity"] =
-        eventType === "drowsiness" || eventType === "phone_detected"
-          ? "critical"
-          : eventType === "focus_offscreen" ||
-              eventType === "bad_posture" ||
-              eventType === "posture_deviation"
-            ? "medium"
-            : "soft";
-
-      const ruleNameMap: Record<string, string> = {
-        drowsiness: "Drowsiness Warning",
-        bad_posture: "Bad Posture Warning",
-        posture_deviation: "Bad Posture Warning",
-        focus_offscreen: "Distraction Warning",
-        face_too_close: "Too Close To Screen",
-        face_too_far: "Too Far From Screen",
-        phone_detected: "Phone Detected",
-      };
-
-      pushAlert({
-        id: `detect-${eventType}-${now}`,
-        event_type: eventType,
-        severity,
-        message: `Phát hiện: ${eventType}`,
-        created_at: new Date(now).toISOString(),
-        rule_name: ruleNameMap[eventType],
-      });
-    };
-
-    const openAlertSocket = async (sid: string) => {
-      try {
-        const ticket = await apiFetch<{ ticket: string }>(
-          "/api/v1/monitoring/stream-ticket",
-          { method: "POST" },
-        );
-
-        const wsBase = wsBaseFromApiBase(API_BASE);
-        const wsUrl = new URL("/api/v1/monitoring/alerts-stream", wsBase);
-        wsUrl.searchParams.set("ticket", ticket.ticket);
-        wsUrl.searchParams.set("session_id", sid);
-
-        const ws = new WebSocket(wsUrl.toString());
-        alertWsRef.current = ws;
-
-        ws.onmessage = (ev) => {
-          try {
-            const msg = JSON.parse(ev.data as string);
-            if (msg?.type === "alert") {
-              const alertId = msg.alert_id || `alert-${Date.now()}`;
-              const newAlert: Alert = {
-                id: alertId,
-                event_type: msg.event_type || msg.severity || "unknown",
-                severity: msg.severity || "medium",
-                message: msg.message || "Alert detected",
-                created_at: msg.created_at || new Date().toISOString(),
-                rule_name: msg.rule_name,
-              };
-              pushAlert(newAlert);
-            }
-          } catch {
-            // ignore malformed payloads
-          }
-        };
-      } catch {
-        // Non-fatal. Detect flow can still run without live alert stream.
-      }
-    };
-
     const startDetectLoop = (sid: string) => {
       detectTimerRef.current = setInterval(async () => {
         if (!active || detectBusyRef.current) return;
@@ -251,12 +151,12 @@ export function CameraWidget({
           const ctx = capture.getContext("2d");
           if (!ctx) return;
 
-          capture.width = 480;
-          capture.height = 270;
+          capture.width = 400;
+          capture.height = 225;
           ctx.drawImage(video, 0, 0, capture.width, capture.height);
 
           const blob = await new Promise<Blob | null>((resolve) =>
-            capture.toBlob((b) => resolve(b), "image/jpeg", 0.55),
+            capture.toBlob((b) => resolve(b), "image/jpeg", 0.45),
           );
           if (!blob) return;
 
@@ -270,7 +170,6 @@ export function CameraWidget({
 
           if (!active) return;
           setLatest(detected);
-          maybePushLocalAlertFromDetect(detected);
           drawOverlay(detected);
           publishMetrics(detected);
           setError(null);
@@ -281,7 +180,7 @@ export function CameraWidget({
         } finally {
           detectBusyRef.current = false;
         }
-      }, 500);
+      }, 300);
     };
 
     const start = async () => {
@@ -311,7 +210,6 @@ export function CameraWidget({
       video.srcObject = stream;
       await video.play();
 
-      await openAlertSocket(sessionId);
       startDetectLoop(sessionId);
       setError(null);
     };
@@ -349,6 +247,11 @@ export function CameraWidget({
 
       <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-lg border border-white/20 bg-slate-900/72 px-2 py-1 text-[10px] leading-tight text-cyan-100 backdrop-blur-sm">
         <p>Status: {statusLabel}</p>
+        {latest?.is_calibrating ? (
+          <p className="text-amber-300">
+            ⏳ Calibrating {Math.round(latest?.calibration_progress ?? 0)}%
+          </p>
+        ) : null}
         <p>Detect: {latest?.perf?.detect_ms ?? 0} ms</p>
         <p>AI FPS: {latest?.perf?.server_ai_fps ?? 0}</p>
       </div>
@@ -358,9 +261,6 @@ export function CameraWidget({
           {error}
         </div>
       ) : null}
-
-      {/* Live alerts toast */}
-      <AlertBadge alerts={recentAlerts} maxVisible={3} />
     </div>
   );
 }

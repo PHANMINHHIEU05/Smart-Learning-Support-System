@@ -66,8 +66,9 @@ class BrowserDetectService:
     """phân tích frame upload tu browser va tra JSON metrics """
 
     def __init__(self) -> None:
-        self._frame_queue = Queue(maxsize=2)
-        self._result_queue = Queue(maxsize=2)
+        # Keep queues tiny to avoid stale AI results under load.
+        self._frame_queue = Queue(maxsize=1)
+        self._result_queue = Queue(maxsize=1)
         self._ai_thread: Any | None = None
         self._start = False
         self._last_result: dict[str, Any] | None = None
@@ -114,6 +115,8 @@ class BrowserDetectService:
 
         return {
             "ready": False,
+            "is_calibrating": False,
+            "calibration_progress": 0.0,
             "focus_score": 0.0,
             "confidence": 0.0,
             "state_flags": {
@@ -184,6 +187,8 @@ class BrowserDetectService:
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
+        is_calibrating = bool(data.get("is_calibrating", False))
+        calibration_progress = float(data.get("calibration_progress", 0.0) or 0.0)
 
         if is_drowsy:
             derived_event = "drowsiness"
@@ -233,7 +238,7 @@ class BrowserDetectService:
         if now_mono - self._last_debug_log_at >= 1.0:
             self._last_debug_log_at = now_mono
             logger.info(
-                "detect.debug calls=%s ready=%s detect_ms=%.2f detect_ms_int=%s decode_ms=%.2f queue_put_ms=%.2f queue_size=%s dropped_old=%s ai_fps=%.1f latest_age_ms=%s event=%s flags={drowsy:%s,posture:%s,distracted:%s,phone:%s,close:%s,far:%s} metrics={ear_avg:%.3f,posture_score:%.1f,bad_counter:%s,neck_score:%s,head_pitch:%s} modules={face:%s,pose:%s,blend:%s} start_error=%s",
+                "detect.debug calls=%s ready=%s detect_ms=%.2f detect_ms_int=%s decode_ms=%.2f queue_put_ms=%.2f queue_size=%s dropped_old=%s ai_fps=%.1f latest_age_ms=%s event=%s flags={drowsy:%s,posture:%s,distracted:%s,phone:%s,close:%s,far:%s} metrics={ear_avg:%.3f,posture_score:%.1f,bad_counter:%s,neck_score:%s,head_pitch:%s,calibrating:%s} modules={face:%s,pose:%s,blend:%s} start_error=%s",
                 self._analyze_calls,
                 self._last_result is not None,
                 detect_ms_precise,
@@ -256,6 +261,7 @@ class BrowserDetectService:
                 posture_details.get("bad_counter", "none"),
                 posture_details.get("neck_score", "none"),
                 posture_details.get("head_pitch", "none"),
+                is_calibrating,
                 bool(data.get("face_landmarks")),
                 bool(data.get("posture_details")),
                 bool(data.get("blendshapes")),
@@ -264,6 +270,8 @@ class BrowserDetectService:
 
         return {
             "ready": self._last_result is not None,
+            "is_calibrating": is_calibrating,
+            "calibration_progress": round(max(0.0, min(100.0, calibration_progress)), 1),
             "focus_score": round(focus_score, 2),
             "confidence": round(max(0.0, min(1.0, focus_score / 100.0)), 3),
             "state_flags": {
@@ -279,6 +287,61 @@ class BrowserDetectService:
             "detect_ms": detect_ms_int,
             "server_ai_fps": round(float(self._ai_thread.get_fps()), 1),
             "face_distance_ipd": face_distance_ipd,
+        }
+
+    def request_recalibration(self) -> dict[str, Any]:
+        """Request resetting personal profile and starting calibration."""
+        self.start()
+        if self._ai_thread is None:
+            return {
+                "ok": False,
+                "message": "AI runtime not started",
+                "start_error": self._start_error,
+            }
+
+        ok = False
+        try:
+            requester = getattr(self._ai_thread, "request_recalibration", None)
+            if callable(requester):
+                ok = bool(requester(clear_saved_profile=True))
+        except Exception as exc:
+            logger.warning("detect.recalibrate_failed error=%s", exc, exc_info=True)
+            ok = False
+
+        return {
+            "ok": ok,
+            "message": "Calibration started" if ok else "Calibration command unavailable",
+            "start_error": self._start_error,
+        }
+
+    def get_calibration_status(self) -> dict[str, Any]:
+        self.start()
+        if self._ai_thread is None:
+            return {
+                "ready": False,
+                "is_calibrating": False,
+                "calibration_progress": 0.0,
+                "profile_ready": False,
+                "start_error": self._start_error,
+            }
+
+        getter = getattr(self._ai_thread, "get_calibration_status", None)
+        if callable(getter):
+            state = getter() or {}
+            return {
+                "ready": True,
+                "is_calibrating": bool(state.get("is_calibrating", False)),
+                "calibration_progress": float(state.get("calibration_progress", 0.0) or 0.0),
+                "profile_ready": bool(state.get("profile_ready", False)),
+                "start_error": self._start_error,
+            }
+
+        return {
+            "ready": True,
+            "is_calibrating": False,
+            "calibration_progress": 0.0,
+            "profile_ready": False,
+            "start_error": self._start_error,
         }
 
 

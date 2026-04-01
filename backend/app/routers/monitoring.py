@@ -46,6 +46,7 @@ from app.schemas.ai_event import AiEventCreate
 from app.schemas.browser_detect import BrowserDetectResponse, PerfPayload, InterventionState
 from app.services import ai_event_service, alert_service
 from app.services.browser_detect_service import browser_detect_service
+from app.services.notification_bridge import NotificationBridge
 from app.schemas.monitoring import CameraTelemetry
 from app.services import telemetry_service
 
@@ -86,6 +87,10 @@ _SEVERITY_DEFAULTS: dict[str, list[str]] = {
     "soft":     ["focus_low"],
 }
 _STREAM_TICKET_TTL_SECONDS = 45.0
+_DESKTOP_ALERT_CLEAR_AFTER_SEC = 3.0
+_desktop_alert_last_risky_at: dict[str, float] = {}
+_desktop_alert_active: set[str] = set()
+notification_bridge = NotificationBridge()
 
 
 def _normalize_mode(mode: str | None) -> str:
@@ -146,6 +151,20 @@ class ModeSwitchResponse(BaseModel):
 class StreamTicketResponse(BaseModel):
     ticket: str
     expires_in_sec: int
+
+
+class RecalibrateProfileResponse(BaseModel):
+    accepted: bool
+    message: str
+    start_error: str | None = None
+
+
+class CalibrationStatusResponse(BaseModel):
+    ready: bool
+    is_calibrating: bool
+    calibration_progress: float
+    profile_ready: bool
+    start_error: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -359,6 +378,35 @@ async def stop_monitoring(
     return MonitoringStatusResponse(
         status="stopped",
         severity_defaults=_SEVERITY_DEFAULTS,
+    )
+
+
+@router.post("/recalibrate-profile", response_model=RecalibrateProfileResponse)
+async def recalibrate_profile(
+    user_id: uuid.UUID = Depends(get_current_user),
+) -> RecalibrateProfileResponse:
+    # user_id dependency enforces authentication; calibration is local runtime state.
+    _ = user_id
+    result = browser_detect_service.request_recalibration()
+    return RecalibrateProfileResponse(
+        accepted=bool(result.get("ok", False)),
+        message=str(result.get("message", "Unknown")),
+        start_error=result.get("start_error"),
+    )
+
+
+@router.get("/calibration-status", response_model=CalibrationStatusResponse)
+async def calibration_status(
+    user_id: uuid.UUID = Depends(get_current_user),
+) -> CalibrationStatusResponse:
+    _ = user_id
+    state = browser_detect_service.get_calibration_status()
+    return CalibrationStatusResponse(
+        ready=bool(state.get("ready", False)),
+        is_calibrating=bool(state.get("is_calibrating", False)),
+        calibration_progress=float(state.get("calibration_progress", 0.0) or 0.0),
+        profile_ready=bool(state.get("profile_ready", False)),
+        start_error=state.get("start_error"),
     )
 
 
@@ -702,6 +750,8 @@ def _allow_detect_event_emit(user_key: str) -> bool:
 def _default_detect_metrics() -> dict[str, Any]:
     return {
         "ready": False,
+        "is_calibrating": False,
+        "calibration_progress": 0.0,
         "focus_score": 0.0,
         "confidence": 0.0,
         "state_flags": {
@@ -715,6 +765,49 @@ def _default_detect_metrics() -> dict[str, Any]:
         "detect_ms": 0,
         "server_ai_fps": 0.0,
     }
+
+
+def _is_risky_state(metrics: dict[str, Any]) -> bool:
+    event = str(metrics.get("derived_event") or "")
+    if event and event != "focus_update":
+        return True
+
+    flags = metrics.get("state_flags")
+    if not isinstance(flags, dict):
+        return False
+
+    risky_flags = (
+        "is_drowsy",
+        "is_bad_posture",
+        "is_distracted",
+        "is_using_phone",
+        "is_too_close",
+        "is_too_far",
+    )
+    return any(bool(flags.get(k)) for k in risky_flags)
+
+
+def _desktop_notify_sync(user_key: str, metrics: dict[str, Any]) -> None:
+    now = time.monotonic()
+    is_risky = _is_risky_state(metrics)
+    event = str(metrics.get("derived_event") or "focus_update")
+
+    if is_risky:
+        _desktop_alert_last_risky_at[user_key] = now
+        if user_key not in _desktop_alert_active:
+            severity = "critical" if event in ("drowsiness", "phone_detected") else "warning"
+            notification_bridge.trigger_alert(
+                message=f"Canh bao AI: {event}",
+                severity=severity,
+            )
+            _desktop_alert_active.add(user_key)
+        return
+
+    last_risky_at = _desktop_alert_last_risky_at.get(user_key)
+    if user_key in _desktop_alert_active and last_risky_at is not None:
+        if now - last_risky_at >= _DESKTOP_ALERT_CLEAR_AFTER_SEC:
+            notification_bridge.clear_alerts()
+            _desktop_alert_active.discard(user_key)
 
 
 @router.post("/detect", response_model=BrowserDetectResponse)
@@ -749,6 +842,11 @@ async def detect_from_browser_frame(
             metrics.update(analyzed)
     except Exception as exc:
         logger.exception("Detect analyze failed", exc_info=exc)
+
+    try:
+        _desktop_notify_sync(user_key, metrics)
+    except Exception:
+        logger.warning("Desktop notification sync failed", exc_info=True)
 
     derived_event = metrics.get("derived_event")
     if metrics.get("ready") and derived_event and _allow_detect_event_emit(user_key):
@@ -806,6 +904,8 @@ async def detect_from_browser_frame(
         server_ts_ms=int(time.time() * 1000),
         session_id=str(session_uuid),
         frame_seq=frame_seq,
+        is_calibrating=bool(metrics.get("is_calibrating", False)),
+        calibration_progress=float(metrics.get("calibration_progress", 0.0) or 0.0),
         focus_score=float(metrics.get("focus_score", 0.0) or 0.0),
         confidence=float(metrics.get("confidence", 0.0) or 0.0),
         state_flags=metrics.get("state_flags", {}),

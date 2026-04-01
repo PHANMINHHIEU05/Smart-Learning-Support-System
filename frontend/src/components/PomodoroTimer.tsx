@@ -14,6 +14,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAlertListener } from "@/hooks/useAlertListener";
+import { apiFetch } from "@/lib/api-client";
 
 interface PomodoroTimerProps {
   sessionId: string;
@@ -38,6 +39,13 @@ export function PomodoroTimer({
 
   /** Đang trong phase làm việc hay nghỉ? */
   const [phase, setPhase] = useState<"work" | "break">("work");
+  const [showStartupGuide, setShowStartupGuide] = useState(true);
+  const [isRecalibrating, setIsRecalibrating] = useState(false);
+  const [calibrationMessage, setCalibrationMessage] = useState<string | null>(
+    null,
+  );
+  const [isCalibratingNow, setIsCalibratingNow] = useState(false);
+  const [calibrationProgress, setCalibrationProgress] = useState(0);
 
   // ========================================================================
   // Callbacks: Pause/Resume Timer
@@ -66,6 +74,52 @@ export function PomodoroTimer({
   // ========================================================================
   // Effect: Chạy đồng hồ mỗi giây
   // ========================================================================
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowStartupGuide(false), 12000);
+    return () => clearTimeout(timer);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let active = true;
+    const poll = async () => {
+      try {
+        const state = await apiFetch<{
+          ready: boolean;
+          is_calibrating: boolean;
+          calibration_progress: number;
+          profile_ready: boolean;
+          start_error?: string | null;
+        }>("/api/v1/monitoring/calibration-status");
+
+        if (!active) return;
+        setIsCalibratingNow(Boolean(state.is_calibrating));
+        setCalibrationProgress(Math.round(state.calibration_progress || 0));
+
+        if (state.is_calibrating) {
+          setCalibrationMessage(
+            `Dang lay mau tu the: ${Math.round(state.calibration_progress || 0)}%`,
+          );
+        } else if (state.profile_ready) {
+          setCalibrationMessage("Profile ca nhan san sang.");
+        }
+      } catch {
+        if (!active) return;
+      }
+    };
+
+    void poll();
+    const id = setInterval(() => {
+      void poll();
+    }, 1000);
+
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -104,6 +158,38 @@ export function PomodoroTimer({
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
+  const handleRecalibrate = useCallback(async () => {
+    setIsRecalibrating(true);
+    setCalibrationMessage(null);
+    try {
+      const res = await apiFetch<{
+        accepted: boolean;
+        message: string;
+        start_error?: string | null;
+      }>("/api/v1/monitoring/recalibrate-profile", {
+        method: "POST",
+      });
+
+      if (res.accepted) {
+        setCalibrationMessage(
+          "Dang lay mau tu the 6 giay. Hay ngoi thang, mat nhin man hinh.",
+        );
+      } else {
+        setCalibrationMessage(
+          res.start_error
+            ? `Khong the recalibrate: ${res.start_error}`
+            : `Khong the recalibrate: ${res.message}`,
+        );
+      }
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Loi goi API recalibrate";
+      setCalibrationMessage(`Khong the recalibrate: ${msg}`);
+    } finally {
+      setIsRecalibrating(false);
+    }
+  }, []);
+
   // ========================================================================
   // Render
   // ========================================================================
@@ -113,6 +199,16 @@ export function PomodoroTimer({
       {/* ════════════════════════════════════════════════════════════════ */}
       {/* Title & Status */}
       {/* ════════════════════════════════════════════════════════════════ */}
+
+      {showStartupGuide && (
+        <div className="mb-4 max-w-2xl rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-800">
+          <p className="text-sm font-semibold">Huong dan bat dau phien hoc</p>
+          <p className="text-sm">
+            Ban hay ngoi dung tu the trong vai giay dau de he thong lay du lieu
+            mau ca nhan.
+          </p>
+        </div>
+      )}
 
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold text-slate-800 mb-2">
@@ -154,18 +250,12 @@ export function PomodoroTimer({
           {/* Text trạng thái */}
           <span
             className={`text-sm font-medium ${
-              isDistracted
-                ? "text-red-700"
-                : alertStatus === "monitoring"
-                  ? "text-green-700"
-                  : "text-slate-600"
+              alertStatus === "monitoring" ? "text-green-700" : "text-slate-600"
             }`}
           >
-            {isDistracted
-              ? "⚠️ AI phát hiện xao nhãng - Tạm dừng"
-              : alertStatus === "monitoring"
-                ? "✅ AI đang giám sát"
-                : "🔘 Kết nối lại..."}
+            {alertStatus === "monitoring"
+              ? "✅ AI đang giám sát"
+              : "🔘 Kết nối lại..."}
           </span>
         </div>
 
@@ -175,6 +265,28 @@ export function PomodoroTimer({
             Lần cuối: {new Date(lastAlertAt).toLocaleTimeString()}
           </p>
         )}
+
+        {calibrationMessage && (
+          <p className="text-xs text-slate-600 mt-2 text-center">
+            {calibrationMessage}
+          </p>
+        )}
+
+        {isCalibratingNow ? (
+          <div className="mt-2 w-full max-w-xs mx-auto">
+            <div className="h-2 w-full rounded bg-amber-100 overflow-hidden">
+              <div
+                className="h-full bg-amber-500 transition-all duration-300"
+                style={{
+                  width: `${Math.max(0, Math.min(100, calibrationProgress))}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-amber-700 mt-1 text-center">
+              Calibrating... {calibrationProgress}%
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {/* ════════════════════════════════════════════════════════════════ */}
@@ -190,19 +302,6 @@ export function PomodoroTimer({
       {/* ════════════════════════════════════════════════════════════════ */}
       {/* Distraction Overlay (khi đang bị xao nhãng) */}
       {/* ════════════════════════════════════════════════════════════════ */}
-
-      {isDistracted && (
-        <div className="mb-8 p-4 bg-red-50 border-2 border-red-200 rounded-lg max-w-md">
-          <p className="text-red-800 text-center font-semibold">
-            🔴 Phát hiện xao nhãng
-          </p>
-          <p className="text-red-700 text-sm text-center mt-1">
-            Hệ thống AI đã phát hiện bạn đang xao nhãng.
-            <br />
-            Đồng hồ đã được tạm dừng.
-          </p>
-        </div>
-      )}
 
       {/* ════════════════════════════════════════════════════════════════ */}
       {/* Control Buttons */}
@@ -250,6 +349,14 @@ export function PomodoroTimer({
           className="px-8 py-3 rounded-lg font-semibold bg-blue-500 hover:bg-blue-600 text-white transition-all"
         >
           ⏭ Bỏ qua
+        </button>
+
+        <button
+          onClick={handleRecalibrate}
+          disabled={isRecalibrating}
+          className="px-8 py-3 rounded-lg font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isRecalibrating ? "...Dang recalibrate" : "Re-calibrate profile"}
         </button>
       </div>
 

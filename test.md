@@ -1,6 +1,9 @@
 Terminal 1:
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/backend
-source ../.venv/bin/activate
+python3.10 -m venv .venv310
+source .venv310/bin/activate
+pip install -r requirements.txt
+pip install -r ../frontend/src/features/monitoring/requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Terminal 2:
@@ -13,6 +16,11 @@ Terminal 3, chỉ chạy một lần nếu monitoring chưa cài đủ:
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/frontend/src/features/monitoring
 ./venv/bin/python -m pip install -r requirements.txt
 ./venv/bin/python -m pip install httpx
+
+Neu bi loi "AI processing: No recent AI signal":
+
+- Khong dung .venv Python 3.14 de chay backend.
+- Backend phai chay bang Python 3.10 (huong dan o Terminal 1).
 
 Nếu camera không hiện
 Chạy các lệnh này để kiểm tra:

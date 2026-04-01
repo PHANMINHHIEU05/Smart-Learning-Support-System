@@ -1,6 +1,7 @@
 import cv2 
 import threading
 import time
+import os
 from queue import Queue, Empty
 import mediapipe as mp
 from mediapipe.tasks import python
@@ -15,11 +16,14 @@ from config import performance_config as perf
 from ai_models.drowsiness_detector import DrowsinessDetector
 from ai_models.posture_analyzer import PostureAnalyzer
 from ai_models.focus_calculator import FocusCalculator
+from ai_models.calibrator import Calibrator
+from ai_models.user_profile import UserProfile
 from utils.fps_tracker import FPSTracker
 
 _MONITORING_ROOT = Path(__file__).resolve().parents[1]
 _MODEL_FACE_PATH = str(_MONITORING_ROOT / "models" / "face_landmarker.task")
 _MODEL_POSE_PATH = str(_MONITORING_ROOT / "models" / "pose_landmarker_lite.task")
+_USER_PROFILE_PATH = str(_MONITORING_ROOT / "data" / "user_profile.json")
 
 
 class AIProcessorThread(threading.Thread):
@@ -38,6 +42,9 @@ class AIProcessorThread(threading.Thread):
         self.drowsiness_detector = None
         self.posture_analyzer = None
         self.focus_calculator = None
+        self.calibrator = None
+        self.user_profile = None
+        self.auto_calibrating = False
         
         self.current_emotion = 'neutral'
         self.emotion_confidence = 0.0
@@ -71,6 +78,40 @@ class AIProcessorThread(threading.Thread):
     def get_python_fps(self) -> float:
         """Get current Python FPS from rolling window."""
         return self.fps_tracker.get_fps()
+
+    def request_recalibration(self, clear_saved_profile: bool = True) -> bool:
+        """Reset personal profile and start calibration on next frames."""
+        if self.calibrator is None:
+            return False
+
+        if clear_saved_profile:
+            try:
+                if os.path.exists(_USER_PROFILE_PATH):
+                    os.remove(_USER_PROFILE_PATH)
+            except Exception:
+                pass
+
+        self.user_profile = None
+        self.auto_calibrating = True
+        self.calibrator.start()
+        print("🔄 Nhận lệnh re-calibration: vui lòng ngồi đúng tư thế trong 6 giây")
+        return True
+
+    def get_calibration_status(self) -> Dict:
+        """Runtime calibration status for API sync endpoints."""
+        profile_ready = bool(self.user_profile is not None and self.user_profile.is_calibrated)
+        progress = 0.0
+        if self.calibrator is not None:
+            progress = float(self.calibrator.progress * 100.0)
+        if not self.auto_calibrating and profile_ready:
+            progress = 100.0
+
+        progress = max(0.0, min(100.0, progress))
+        return {
+            "is_calibrating": bool(self.auto_calibrating),
+            "calibration_progress": round(progress, 1),
+            "profile_ready": profile_ready,
+        }
 
     def _init_models(self) -> bool:
         try:
@@ -115,6 +156,16 @@ class AIProcessorThread(threading.Thread):
             self.drowsiness_detector = DrowsinessDetector()
             self.posture_analyzer = PostureAnalyzer()
             self.focus_calculator = FocusCalculator()
+            self.calibrator = Calibrator(duration=6.0)
+            self.user_profile = UserProfile.load_from_file(_USER_PROFILE_PATH)
+
+            if self.user_profile is None or not self.user_profile.is_calibrated:
+                self.auto_calibrating = True
+                self.calibrator.start()
+                print("ℹ️  Chưa có profile cá nhân: bắt đầu auto-calibration (6s, ngồi thẳng)")
+            else:
+                self.auto_calibrating = False
+                print("✅ Đã tải profile cá nhân để giám sát theo baseline riêng")
             
             if perf.ENABLE_BLENDSHAPES:
                 print("✅ AI models khởi tạo thành công (với Blendshapes!)")
@@ -245,11 +296,48 @@ class AIProcessorThread(threading.Thread):
 
             posture_details = self.posture_analyzer.get_posture_details()
 
+            # Personalized posture refinement from calibrated user profile.
+            if self.user_profile is not None and self.user_profile.is_calibrated:
+                head_pitch = float(posture_details.get('head_pitch', 0.0) or 0.0)
+                profile_bad = self.user_profile.is_bad_posture(
+                    current_head_tilt=head_tilt,
+                    current_shoulder_angle=shoulder_angle,
+                    threshold=1.7,
+                ) or self.user_profile.is_head_down(
+                    current_pitch=head_pitch,
+                    threshold=1.7,
+                )
+                if profile_bad:
+                    is_bad_posture = True
+
+            # Auto calibration flow: collect stable baseline samples in first seconds.
+            if self.auto_calibrating and self.calibrator is not None and face_landmarks is not None:
+                self.calibrator.add_sample(
+                    ear_avg=ear_avg,
+                    head_tilt=head_tilt,
+                    shoulder_angle=shoulder_angle,
+                    distance=face_distance_ipd,
+                    head_pitch=float(posture_details.get('head_pitch', 0.0) or 0.0),
+                    ipd=face_distance_ipd,
+                )
+                if self.calibrator.is_complete():
+                    profile = self.calibrator.finish()
+                    if profile is not None:
+                        profile.save_to_file(_USER_PROFILE_PATH)
+                        self.user_profile = profile
+                        print("✅ Đã tạo profile cá nhân mới cho giám sát tư thế")
+                    self.auto_calibrating = False
+
+                # During calibration we avoid posture alerts to reduce false positives.
+                is_bad_posture = False
+
             focus_score = self.focus_calculator.calculate_focus_score(
                 ear_avg=ear_avg,
                 posture_score=posture_score,
                 emotion=self.current_emotion
             )
+
+            calibration_state = self.get_calibration_status()
 
             result = {
                 'timestamp': time.time(),
@@ -266,6 +354,9 @@ class AIProcessorThread(threading.Thread):
                 'focus_score': focus_score,
                 'is_drowsy': is_drowsy,
                 'is_bad_posture': is_bad_posture,
+                'is_calibrating': calibration_state['is_calibrating'],
+                'calibration_progress': calibration_state['calibration_progress'],
+                'profile_ready': calibration_state['profile_ready'],
                 'face_landmarks': face_landmarks,
                 'blendshapes': blendshapes_dict,  # ← THÊM MỚI
                 'frame': frame

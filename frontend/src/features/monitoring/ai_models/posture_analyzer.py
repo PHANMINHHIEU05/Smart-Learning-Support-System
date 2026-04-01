@@ -65,9 +65,9 @@ class PostureAnalyzer:
     """
     
     def __init__(self, 
-                 head_tilt_threshold: float = 12.0,
-                 posture_frames: int = 6,
-                 neck_threshold: float = 55.0):
+                 head_tilt_threshold: float = 10.0,
+                 posture_frames: int = 4,
+                 neck_threshold: float = 65.0):
         """
         Args:
             head_tilt_threshold: Góc cúi đầu tối đa (độ)
@@ -85,6 +85,9 @@ class PostureAnalyzer:
         self.last_neck_score = 75.0
         self.last_head_pitch = 0.0
         self.last_head_roll = 0.0
+        self.last_vertical_distance = 0.0
+        self.last_neck_drop = 0.0
+        self.neck_baseline_distance = None
 
     @staticmethod
     def calculate_angle(p1, p2, p3) -> float:
@@ -149,6 +152,7 @@ class PostureAnalyzer:
         # Y trong MediaPipe: 0 = trên, 1 = dưới
         # nose.y < mid_shoulder_y = đầu cao hơn vai (tốt)
         vertical_distance = mid_shoulder_y - nose.y
+        self.last_vertical_distance = float(vertical_distance)
         
         # Convert sang điểm (calibrated thresholds)
         if vertical_distance > 0.20:
@@ -165,35 +169,28 @@ class PostureAnalyzer:
             return 5.0    # Đầu thấp hơn vai - rất xấu
 
     def calculate_head_pitch(self, face_landmarks) -> float:
-        """Tính góc cúi/ngẩng đầu từ Face Mesh
-        
-        Returns: 
-            float: Góc pitch (độ)
-            - Dương (+) = Cúi đầu xuống
-            - Âm (-) = Ngẩng đầu lên
-            - 0 = Nhìn thẳng
+        """Tính góc cúi đầu từ Face Mesh
+
+        Returns: Góc pitch (độ) - Dương = cúi, Âm = ngẩng
         """
-        if face_landmarks is None:
-            return 0.0
-            
         forehead = face_landmarks.landmark[FaceMeshLandmarks.FOREHEAD]
-        nose = face_landmarks.landmark[FaceMeshLandmarks.NOSE_TIP]
         chin = face_landmarks.landmark[FaceMeshLandmarks.CHIN]
-        
-        # Khoảng cách trán-mũi vs mũi-cằm
-        upper = math.sqrt((forehead.x - nose.x)**2 + (forehead.y - nose.y)**2)
-        lower = math.sqrt((nose.x - chin.x)**2 + (nose.y - chin.y)**2)
-        
+        nose = face_landmarks.landmark[FaceMeshLandmarks.NOSE_TIP]
+
+        # Robust pitch estimate for webcam: combine 2D face-ratio and depth cue.
+        upper = math.sqrt((forehead.x - nose.x) ** 2 + (forehead.y - nose.y) ** 2)
+        lower = math.sqrt((nose.x - chin.x) ** 2 + (nose.y - chin.y) ** 2)
         if lower == 0:
             return 0.0
-        
-        # Tỷ lệ - nếu upper > lower = cúi đầu
-        ratio = upper / lower
-        
-        # Convert sang góc (calibrated)
-        pitch_angle = (ratio - 1.0) * 50
-        
-        return pitch_angle
+
+        ratio_pitch = (upper / lower - 1.0) * 55.0
+
+        face_height = abs(chin.y - forehead.y)
+        depth_diff = chin.z - forehead.z
+        depth_pitch = math.degrees(math.atan2(depth_diff, face_height if face_height > 1e-6 else 1e-6))
+
+        # 2D ratio is more stable with low-cost webcam; blend a small depth contribution.
+        return ratio_pitch + (0.25 * depth_pitch)
 
     def calculate_head_roll(self, face_landmarks) -> float:
         """Tính góc nghiêng đầu từ Face Mesh
@@ -335,6 +332,20 @@ class PostureAnalyzer:
         if face_landmarks is not None:
             head_pitch = self.calculate_head_pitch(face_landmarks)
             head_roll = self.calculate_head_roll(face_landmarks)
+
+        # Adaptive neck baseline per user/camera.
+        if self.neck_baseline_distance is None:
+            self.neck_baseline_distance = self.last_vertical_distance
+        elif neck_score >= 65 and abs(head_pitch) < 12 and head_tilt < 8:
+            self.neck_baseline_distance = (
+                0.95 * self.neck_baseline_distance + 0.05 * self.last_vertical_distance
+            )
+
+        neck_drop = 0.0
+        if self.neck_baseline_distance is not None:
+            neck_drop = max(0.0, self.neck_baseline_distance - self.last_vertical_distance)
+        self.last_neck_drop = neck_drop
+        relative_slouch = neck_drop > 0.028
         
         # Lưu lại
         self.last_neck_score = neck_score
@@ -353,11 +364,14 @@ class PostureAnalyzer:
         )
         
         # 4. Tracking bad posture
-        is_bad = (posture_score < 50 or 
-                 neck_score < self.neck_threshold or
-                 head_tilt > self.head_tilt_threshold or
-                 abs(head_pitch) > 25 or
-                 abs(head_roll) > 15)
+        is_bad = (
+            posture_score < 62
+            or neck_score < self.neck_threshold
+            or head_tilt > self.head_tilt_threshold
+            or abs(head_pitch) > 18
+            or abs(head_roll) > 12
+            or relative_slouch
+        )
         
         if is_bad:
             self.bad_posture_counter += 1
@@ -370,22 +384,6 @@ class PostureAnalyzer:
             self.is_bad_posture = True
             
         return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
-
-    def calculate_head_pitch(self, face_landmarks) -> float:
-        """Tính góc cúi đầu từ Face Mesh
-        
-        Returns: Góc pitch (độ) - Dương = cúi, Âm = ngẩng
-        """
-        forehead = face_landmarks.landmark[FaceMeshLandmarks.FOREHEAD]
-        chin = face_landmarks.landmark[FaceMeshLandmarks.CHIN]
-        nose = face_landmarks.landmark[FaceMeshLandmarks.NOSE_TIP]
-        face_height = chin.y - forehead.y
-        depth_diff = chin.z - forehead.z
-        
-        if face_height == 0:
-            return 0.0
-        
-        return math.degrees(math.atan2(depth_diff, abs(face_height)))
 
     def calculate_face_distance(self, face_landmarks) -> float:
         """Ước tính khoảng cách mặt-camera qua IPD
@@ -414,6 +412,8 @@ class PostureAnalyzer:
             'head_pitch': round(self.last_head_pitch, 1),
             'head_roll': round(self.last_head_roll, 1),
             'head_yaw': round(getattr(self, 'last_head_yaw', 0.0), 1),
+            'neck_drop': round(self.last_neck_drop, 4),
+            'neck_baseline': round(self.neck_baseline_distance, 4) if self.neck_baseline_distance is not None else None,
             'is_bad_posture': self.is_bad_posture,
             'bad_counter': self.bad_posture_counter
         }
@@ -425,4 +425,7 @@ class PostureAnalyzer:
         self.last_head_pitch = 0.
         self.last_head_yaw = 0.00
         self.last_head_roll = 0.0
+        self.last_vertical_distance = 0.0
+        self.last_neck_drop = 0.0
+        self.neck_baseline_distance = None
 

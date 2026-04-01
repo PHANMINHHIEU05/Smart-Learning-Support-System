@@ -27,13 +27,13 @@ CAMERA_CLAHE = True                 # CLAHE giúp đồng đều ánh sáng trê
 
 # ============ PROCESSING SETTINGS ============
 # Resolution để xử lý AI (nhỏ hơn camera resolution)
-PROCESSING_WIDTH = 224
-PROCESSING_HEIGHT = 168
+PROCESSING_WIDTH = 192
+PROCESSING_HEIGHT = 144
 PROCESSING_SCALE = 0.5  # Scale factor từ camera resolution
 
 # Frame skipping để tăng FPS - TĂNG MẠNH
-FACE_PROCESS_INTERVAL = 2
-POSE_PROCESS_INTERVAL = 3
+FACE_PROCESS_INTERVAL = 1
+POSE_PROCESS_INTERVAL = 1
 BLENDSHAPE_PROCESS_INTERVAL = 3
 
 # Advanced features interval

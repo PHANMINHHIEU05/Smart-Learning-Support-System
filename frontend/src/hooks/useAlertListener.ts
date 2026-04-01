@@ -23,6 +23,41 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { createSupabaseClient } from "@/lib/supabase";
+import { API_BASE, apiFetch } from "@/lib/api-client";
+
+interface StreamTicketResponse {
+  ticket: string;
+  expires_in_sec: number;
+}
+
+interface AlertStreamMessage {
+  type?: string;
+  severity?: "critical" | "medium" | "soft";
+  event_type?: string;
+}
+
+const DISTRACTION_EVENTS = new Set([
+  "drowsiness",
+  "bad_posture",
+  "posture_deviation",
+  "focus_offscreen",
+  "phone_detected",
+  "face_too_close",
+  "face_too_far",
+]);
+
+function wsBaseFromApiBase(apiBase: string): string {
+  try {
+    const url = new URL(apiBase);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "ws://localhost:8000/";
+  }
+}
 
 export interface UseAlertListenerOptions {
   /** ID của session hiện tại (để xác định user) */
@@ -96,13 +131,19 @@ export function useAlertListener(
   const wsRef = useRef<WebSocket | null>(null);
 
   /** Reference đến Supabase realtime subscription */
-  const realtimeSubRef = useRef<any>(null);
+  const realtimeSubRef = useRef<{ unsubscribe: () => void } | null>(null);
 
   /** Reference đến reconnect timeout */
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  /** Reference đến timer tự clear cảnh báo khi không có alert mới */
+  const autoClearTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  /** Cho phép reconnect khi component còn mounted */
+  const shouldReconnectRef = useRef(true);
+
   const log = useCallback(
-    (msg: string, data?: any) => {
+    (msg: string, data?: unknown) => {
       if (debug) {
         console.log(`[useAlertListener] ${msg}`, data || "");
       }
@@ -122,15 +163,28 @@ export function useAlertListener(
    * - { status: "stop" } → Người dùng tập trung lại → tiếp tục đồng hồ
    */
   const handleAlertSignal = useCallback(
-    (status: "start" | "stop") => {
-      log("Handling alert signal", { status });
+    (status: "start" | "stop", clearAfterMs?: number) => {
+      log("Handling alert signal", { status, clearAfterMs });
       setLastAlertAt(Date.now());
+
+      if (autoClearTimeoutRef.current) {
+        clearTimeout(autoClearTimeoutRef.current);
+        autoClearTimeoutRef.current = null;
+      }
 
       if (status === "start") {
         // ❌ Xao nhãng → Dừng đồng hồ
         setIsDistracted(true);
         pauseTimer();
         log("Pausing timer due to distraction alert");
+
+        if (clearAfterMs && clearAfterMs > 0) {
+          autoClearTimeoutRef.current = setTimeout(() => {
+            setIsDistracted(false);
+            resumeTimer();
+            log("Auto-resume timer after quiet period");
+          }, clearAfterMs);
+        }
       } else if (status === "stop") {
         // ✅ Tập trung → Tiếp tục đồng hồ
         setIsDistracted(false);
@@ -146,18 +200,26 @@ export function useAlertListener(
    */
   const connectWebsocket = useCallback(async () => {
     try {
-      log("Connecting to Websocket", { url: websocketUrl });
+      const ticketResp = await apiFetch<StreamTicketResponse>(
+        "/api/v1/monitoring/stream-ticket",
+        { method: "POST" },
+      );
 
-      // Lấy ticket để xác thực Websocket
-      const token = sessionId; // Hoặc lấy từ auth context
+      const streamUrl = websocketUrl
+        ? new URL(websocketUrl)
+        : new URL(
+            "/api/v1/monitoring/alerts-stream",
+            wsBaseFromApiBase(API_BASE),
+          );
 
-      // Tạo URL với query params
-      const url = new URL(websocketUrl);
-      url.searchParams.set("ticket", token);
-      url.searchParams.set("session_id", sessionId);
+      log("Connecting to Websocket", { url: streamUrl.toString() });
+
+      streamUrl.searchParams.set("ticket", ticketResp.ticket);
+      streamUrl.searchParams.set("session_id", sessionId);
 
       // Tạo Websocket connection
-      const ws = new WebSocket(url.toString());
+      const ws = new WebSocket(streamUrl.toString());
+      wsRef.current = ws;
 
       ws.onopen = () => {
         log("Websocket connected");
@@ -166,10 +228,15 @@ export function useAlertListener(
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(event.data) as AlertStreamMessage;
 
-          if (data?.type === "alert" && data?.status) {
-            handleAlertSignal(data.status as "start" | "stop");
+          if (data?.type === "alert") {
+            const eventType = (data.event_type || "").toLowerCase();
+            if (DISTRACTION_EVENTS.has(eventType)) {
+              const clearAfterMs =
+                data.severity === "critical" ? 10_000 : 6_000;
+              handleAlertSignal("start", clearAfterMs);
+            }
           }
         } catch (e) {
           log("Failed to parse websocket message", e);
@@ -187,15 +254,21 @@ export function useAlertListener(
         wsRef.current = null;
 
         // Reconnect sau 5 giây
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebsocket();
-        }, 5000);
+        if (shouldReconnectRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectWebsocket();
+          }, 5000);
+        }
       };
-
-      wsRef.current = ws;
     } catch (e) {
       log("Failed to connect Websocket", e);
       setAlertStatus("error");
+
+      if (shouldReconnectRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebsocket();
+        }, 5000);
+      }
     }
   }, [sessionId, websocketUrl, handleAlertSignal, log]);
 
@@ -231,9 +304,10 @@ export function useAlertListener(
             filter: `session_id=eq.${sessionId}`,
           },
           (payload) => {
-            const newRecord = payload.new as any;
-            if (newRecord?.status) {
-              handleAlertSignal(newRecord.status);
+            const newRecord = payload.new as Record<string, unknown>;
+            const status = newRecord?.status;
+            if (status === "start" || status === "stop") {
+              handleAlertSignal(status);
             }
           },
         )
@@ -262,6 +336,7 @@ export function useAlertListener(
   // ========================================================================
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
     log("useAlertListener mounted", { sessionId, useWebsocket });
 
     if (!sessionId) {
@@ -277,6 +352,7 @@ export function useAlertListener(
 
     return () => {
       log("useAlertListener cleanup");
+      shouldReconnectRef.current = false;
 
       // Đóng Websocket
       if (wsRef.current) {
@@ -294,6 +370,11 @@ export function useAlertListener(
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+
+      if (autoClearTimeoutRef.current) {
+        clearTimeout(autoClearTimeoutRef.current);
+        autoClearTimeoutRef.current = null;
       }
     };
   }, [sessionId, useWebsocket, connectWebsocket, connectSupabaseRealtime, log]);
