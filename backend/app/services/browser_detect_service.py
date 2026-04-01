@@ -3,9 +3,22 @@ from __future__ import annotations
 import logging
 import sys
 import time
+import platform
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
+
+
+def _extend_sys_path_with_monitoring_venv(monitoring_root: Path) -> None:
+    """Allow backend process to import AI deps from monitoring virtualenv."""
+    venv_root = monitoring_root / "venv"
+    candidates = []
+    candidates.extend(sorted((venv_root / "lib").glob("python*/site-packages")))
+    candidates.extend(sorted((venv_root / "lib64").glob("python*/site-packages")))
+    for path in candidates:
+        path_str = str(path)
+        if path.exists() and path_str not in sys.path:
+            sys.path.append(path_str)
 
 try:
     import cv2
@@ -24,8 +37,26 @@ _MONITORING_ROOT = (
     /"features"
     /"monitoring"
 )
+_extend_sys_path_with_monitoring_venv(_MONITORING_ROOT)
 if str(_MONITORING_ROOT) not in sys.path:
     sys.path.append(str(_MONITORING_ROOT))
+
+# Retry imports after adding monitoring venv site-packages.
+if cv2 is None:
+    try:
+        import cv2 as _cv2  # type: ignore
+
+        cv2 = _cv2
+    except ImportError:  # pragma: no cover
+        cv2 = None
+
+if np is None:
+    try:
+        import numpy as _np  # type: ignore
+
+        np = _np
+    except ImportError:  # pragma: no cover
+        np = None
 
 
 logger = logging.getLogger("app.browser_detect")
@@ -52,7 +83,12 @@ class BrowserDetectService:
             return
 
         if np is None or cv2 is None:
-            self._start_error = "Missing numpy/cv2 in backend environment"
+            py_ver = platform.python_version()
+            self._start_error = (
+                "Missing numpy/cv2 in backend environment. "
+                f"Current Python={py_ver}. "
+                "Use Python 3.10 venv for backend and install monitoring requirements."
+            )
             logger.error("detect.start_failed reason=%s", self._start_error)
             return
 
