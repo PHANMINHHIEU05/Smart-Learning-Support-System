@@ -76,6 +76,9 @@ class MainApplication:
         self.fps_frame_count = 0
         self.current_fps = 0.0
 
+        self.near_screen_close_threshold = float(os.environ.get("MONITORING_NEAR_SCREEN_CLOSE_THRESHOLD", "0.16"))
+        self.near_screen_far_threshold = float(os.environ.get("MONITORING_NEAR_SCREEN_FAR_THRESHOLD", "0.11"))
+
         # Backend sync — use MONITORING_SESSION_ID env var if provided (set by web timer)
         self.session_id = os.environ.get("MONITORING_SESSION_ID") or str(uuid.uuid4())
         _backend_client = BackendClient(
@@ -263,11 +266,11 @@ class MainApplication:
         # IPD càng LỚN → càng GẦN camera, IPD càng NHỎ → càng XA camera
         face_distance_ipd = ai_result.get('face_distance_ipd', 0.15)
         
-        if face_distance_ipd > 0.2:  # IPD LỚN = GẦN
+        if face_distance_ipd > self.near_screen_close_threshold:  # IPD LỚN = GẦN
             distance_status = "too_close"  # FIX: đổi từ "Too Far" → "too_close"
             is_too_close = True
             is_too_far = False
-        elif face_distance_ipd < 0.1:  # IPD NHỎ = XA
+        elif face_distance_ipd < self.near_screen_far_threshold:  # IPD NHỎ = XA
             distance_status = "too_far"  # FIX: đổi từ "Too Close" → "too_far"
             is_too_close = False
             is_too_far = True
@@ -367,9 +370,13 @@ class MainApplication:
         # Only enqueue alert-worthy states or a periodic focus update (~1/sec at 30fps).
         is_drowsy_flag = ai_result.get('is_drowsy', False)
         is_bad_posture_flag = ai_result.get('is_bad_posture', False)
-        if is_drowsy_flag or is_bad_posture_flag or is_distracted or is_using_phone or (self.frame_count % 30 == 0):
+        if is_drowsy_flag or is_bad_posture_flag or is_distracted or is_using_phone or is_too_close or is_too_far or (self.frame_count % 30 == 0):
             if is_drowsy_flag:
                 event_type = 'drowsiness'
+            elif is_too_close:
+                event_type = 'face_too_close'
+            elif is_too_far:
+                event_type = 'face_too_far'
             elif is_using_phone:
                 event_type = 'phone_detected'
             elif is_bad_posture_flag:
@@ -393,6 +400,8 @@ class MainApplication:
                     'is_using_phone': is_using_phone,
                     'phone_confidence': round(phone_confidence, 1),
                     'distance_status': distance_status,
+                    'is_too_close': is_too_close,
+                    'is_too_far': is_too_far,
                 }),
             })
 

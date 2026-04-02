@@ -138,6 +138,8 @@ const ERGONOMIC_EVENT_TYPES = [
   "posture_too_close",
   "near_screen",
   "too_close",
+  "face_too_close",
+  "face_too_far",
 ];
 const PHONE_EVENT_TYPES = ["phone_detected", "DISTRACTION_PHONE"];
 
@@ -159,6 +161,9 @@ export default function TimerPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [settings, setSettings] = useState<UserSetting | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [startupCalibrationMessage, setStartupCalibrationMessage] = useState<
+    string | null
+  >(null);
   const [starting, setStarting] = useState(false);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [savingSoundPref, setSavingSoundPref] = useState(false);
@@ -171,6 +176,11 @@ export default function TimerPage() {
   const [ackedAlertIds, setAckedAlertIds] = useState<Set<string>>(new Set());
   const [interventionState, setInterventionState] =
     useState<InterventionStateResponse | null>(null);
+  const [calibrationStatus, setCalibrationStatus] = useState<{
+    is_calibrating: boolean;
+    calibration_progress: number;
+    profile_ready: boolean;
+  } | null>(null);
   const [ergonomicReminderText, setErgonomicReminderText] = useState<
     string | null
   >(null);
@@ -202,6 +212,10 @@ export default function TimerPage() {
     session: null,
     currentBlock: null,
   });
+  const [pendingStart, setPendingStart] = useState<{
+    session: StudySession;
+    block: SessionBlock;
+  } | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -226,18 +240,24 @@ export default function TimerPage() {
   // ── Monitoring polling ────────────────────────────────────────────────────
   const pollMonitoring = useCallback(async (sessionId: string) => {
     try {
-      const [status, alerts, events, intervention] = await Promise.all([
-        apiFetch<MonitoringStatusResponse>("/api/v1/monitoring/status"),
-        apiFetch<AlertResponse[]>(
-          `/api/v1/alerts/?session_id=${sessionId}&limit=20`,
-        ),
-        apiFetch<AiEventResponse[]>(
-          `/api/v1/ai-events/?session_id=${sessionId}&limit=20`,
-        ),
-        apiFetch<InterventionStateResponse>(
-          `/api/v1/monitoring/interventions/${sessionId}`,
-        ),
-      ]);
+      const [status, alerts, events, intervention, calibration] =
+        await Promise.all([
+          apiFetch<MonitoringStatusResponse>("/api/v1/monitoring/status"),
+          apiFetch<AlertResponse[]>(
+            `/api/v1/alerts/?session_id=${sessionId}&limit=20`,
+          ),
+          apiFetch<AiEventResponse[]>(
+            `/api/v1/ai-events/?session_id=${sessionId}&limit=20`,
+          ),
+          apiFetch<InterventionStateResponse>(
+            `/api/v1/monitoring/interventions/${sessionId}`,
+          ),
+          apiFetch<{
+            is_calibrating: boolean;
+            calibration_progress: number;
+            profile_ready: boolean;
+          }>("/api/v1/monitoring/calibration-status"),
+        ]);
       setMonitoringStatus((prev) => {
         if (
           prev?.status === status.status &&
@@ -263,14 +283,25 @@ export default function TimerPage() {
         }
         return intervention;
       });
+      setCalibrationStatus((prev) => {
+        if (
+          prev?.is_calibrating === calibration.is_calibrating &&
+          prev?.calibration_progress === calibration.calibration_progress &&
+          prev?.profile_ready === calibration.profile_ready
+        ) {
+          return prev;
+        }
+        return calibration;
+      });
     } catch {
       // ignore transient poll errors — show last known state
     }
   }, []);
 
   useEffect(() => {
-    const sessionId = timer.session?.session_id;
-    if (timer.status !== "idle" && sessionId) {
+    const sessionId =
+      timer.session?.session_id ?? pendingStart?.session.session_id;
+    if ((timer.status !== "idle" || pendingStart) && sessionId) {
       // immediate first poll then every 3 s
       void pollMonitoring(sessionId);
       pollingRef.current = setInterval(
@@ -283,7 +314,7 @@ export default function TimerPage() {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [timer.status, timer.session?.session_id, pollMonitoring]);
+  }, [timer.status, timer.session?.session_id, pendingStart, pollMonitoring]);
 
   const handleCameraMetrics = useCallback((metrics: CameraStreamMetrics) => {
     setStreamMetrics(metrics);
@@ -421,10 +452,41 @@ export default function TimerPage() {
   const longBreakSec = (settings?.pomodoro_long_break_minutes ?? 15) * 60;
   const cyclesBeforeLong = settings?.pomodoro_cycles_before_long_break ?? 4;
 
+  useEffect(() => {
+    if (!pendingStart || !calibrationStatus) return;
+
+    if (calibrationStatus.is_calibrating) {
+      setStartupCalibrationMessage(
+        `Đang lấy profile cá nhân: ${Math.round(calibrationStatus.calibration_progress)}%`,
+      );
+      return;
+    }
+
+    if (calibrationStatus.profile_ready) {
+      setStartupCalibrationMessage(
+        "Profile cá nhân đã sẵn sàng. Bắt đầu phiên học.",
+      );
+      dispatch({
+        type: "START",
+        session: pendingStart.session,
+        block: pendingStart.block,
+        seconds: focusSec,
+      });
+      setPendingStart(null);
+      return;
+    }
+
+    setStartupCalibrationMessage(
+      "Đang chờ nhận diện khuôn mặt để lấy profile cá nhân...",
+    );
+  }, [pendingStart, calibrationStatus, focusSec]);
+
   const handleStart = async () => {
     if (!settings) return;
     setStarting(true);
     setError(null);
+    setStartupCalibrationMessage(null);
+    setPendingStart(null);
     setAckedAlertIds(new Set());
     try {
       const session = await apiFetch<StudySession>("/api/v1/sessions/", {
@@ -444,7 +506,6 @@ export default function TimerPage() {
           planned_duration_seconds: focusSec,
         } satisfies BlockCreate),
       });
-      dispatch({ type: "START", session, block, seconds: focusSec });
 
       // Bật giám sát AI nếu được bật trong settings
       if (settings.ai_monitoring_enabled !== false) {
@@ -465,6 +526,19 @@ export default function TimerPage() {
             },
           );
           setMonitoringStatus(status);
+
+          // Trigger fresh personal-profile calibration before countdown starts.
+          setStartupCalibrationMessage(
+            "Đang lấy profile cá nhân trong 10 giây trước khi bắt đầu phiên học...",
+          );
+          await apiFetch<{
+            accepted: boolean;
+            message: string;
+            start_error?: string | null;
+          }>("/api/v1/monitoring/recalibrate-profile", {
+            method: "POST",
+          });
+          setPendingStart({ session, block });
         } catch (monitoringError: unknown) {
           setMonitoringStatus(null);
           setError(
@@ -472,7 +546,10 @@ export default function TimerPage() {
               ? `Monitoring failed to start: ${monitoringError.message}`
               : "Monitoring failed to start",
           );
+          return;
         }
+      } else {
+        dispatch({ type: "START", session, block, seconds: focusSec });
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to start session");
@@ -709,6 +786,28 @@ export default function TimerPage() {
     }
   };
 
+  const handleRecalibrateProfile = async () => {
+    setError(null);
+    try {
+      const res = await apiFetch<{
+        accepted: boolean;
+        message: string;
+        start_error?: string | null;
+      }>("/api/v1/monitoring/recalibrate-profile", { method: "POST" });
+      if (!res.accepted) {
+        setError(
+          res.start_error
+            ? `Calibration restart failed: ${res.start_error}`
+            : `Calibration restart failed: ${res.message}`,
+        );
+      }
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error ? e.message : "Failed to start recalibration",
+      );
+    }
+  };
+
   const handleAckAlert = (alertId: string) => {
     setAckedAlertIds((prev) => new Set(prev).add(alertId));
     apiFetch(`/api/v1/monitoring/alerts/${alertId}/ack`, {
@@ -867,6 +966,12 @@ export default function TimerPage() {
         </div>
       )}
 
+      {startupCalibrationMessage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {startupCalibrationMessage}
+        </div>
+      )}
+
       {timer.status === "idle" ? (
         <div className="surface-card max-w-xl space-y-4 p-6">
           <div>
@@ -911,9 +1016,30 @@ export default function TimerPage() {
             </div>
           )}
 
+          {pendingStart && settings?.ai_monitoring_enabled !== false && (
+            <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-medium text-amber-800">
+                Đang quét profile cá nhân 10 giây trước khi bắt đầu phiên học.
+              </p>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
+                  }}
+                />
+              </div>
+              <CameraWidget
+                sessionId={pendingStart.session.session_id}
+                className="w-full min-h-[180px] border border-slate-200/80"
+                onMetrics={handleCameraMetrics}
+              />
+            </div>
+          )}
+
           <button
             onClick={handleStart}
-            disabled={starting || !settings}
+            disabled={starting || !settings || pendingStart !== null}
             className="btn-primary w-full disabled:opacity-60"
           >
             {starting ? "Starting..." : "Start Pomodoro"}
@@ -939,6 +1065,40 @@ export default function TimerPage() {
           {ergonomicReminderText && (
             <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-800">
               {ergonomicReminderText}
+            </div>
+          )}
+
+          {settings?.ai_monitoring_enabled !== false && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold">Profile calibration</span>
+                <button
+                  onClick={handleRecalibrateProfile}
+                  className="rounded-md border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                >
+                  Re-calibrate profile
+                </button>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span>
+                  {calibrationStatus?.is_calibrating
+                    ? `Calibrating ${Math.round(calibrationStatus.calibration_progress)}%`
+                    : calibrationStatus?.profile_ready
+                      ? "Profile cá nhân đã sẵn sàng"
+                      : "Chưa có profile cá nhân"}
+                </span>
+                <span className="text-amber-700">
+                  {Math.round(calibrationStatus?.calibration_progress ?? 0)}%
+                </span>
+              </div>
             </div>
           )}
 

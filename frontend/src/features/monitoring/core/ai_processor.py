@@ -94,7 +94,7 @@ class AIProcessorThread(threading.Thread):
         self.user_profile = None
         self.auto_calibrating = True
         self.calibrator.start()
-        print("🔄 Nhận lệnh re-calibration: vui lòng ngồi đúng tư thế trong 6 giây")
+        print("🔄 Nhận lệnh re-calibration: vui lòng ngồi đúng tư thế trong 10 giây")
         return True
 
     def get_calibration_status(self) -> Dict:
@@ -156,13 +156,13 @@ class AIProcessorThread(threading.Thread):
             self.drowsiness_detector = DrowsinessDetector()
             self.posture_analyzer = PostureAnalyzer()
             self.focus_calculator = FocusCalculator()
-            self.calibrator = Calibrator(duration=6.0)
+            self.calibrator = Calibrator(duration=10.0)
             self.user_profile = UserProfile.load_from_file(_USER_PROFILE_PATH)
 
             if self.user_profile is None or not self.user_profile.is_calibrated:
                 self.auto_calibrating = True
                 self.calibrator.start()
-                print("ℹ️  Chưa có profile cá nhân: bắt đầu auto-calibration (6s, ngồi thẳng)")
+                print("ℹ️  Chưa có profile cá nhân: bắt đầu auto-calibration (10s, ngồi thẳng)")
             else:
                 self.auto_calibrating = False
                 print("✅ Đã tải profile cá nhân để giám sát theo baseline riêng")
@@ -302,10 +302,10 @@ class AIProcessorThread(threading.Thread):
                 profile_bad = self.user_profile.is_bad_posture(
                     current_head_tilt=head_tilt,
                     current_shoulder_angle=shoulder_angle,
-                    threshold=1.7,
+                    threshold=2.2,
                 ) or self.user_profile.is_head_down(
                     current_pitch=head_pitch,
-                    threshold=1.7,
+                    threshold=2.2,
                 )
                 if profile_bad:
                     is_bad_posture = True

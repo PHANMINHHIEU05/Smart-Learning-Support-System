@@ -182,8 +182,8 @@ class BrowserDetectService:
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
-        is_too_close = bool(face_distance_ipd is not None and face_distance_ipd > 0.20)
-        is_too_far = bool(face_distance_ipd is not None and face_distance_ipd < 0.10)
+        is_too_close = bool(face_distance_ipd is not None and face_distance_ipd > 0.16)
+        is_too_far = bool(face_distance_ipd is not None and face_distance_ipd < 0.11)
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
