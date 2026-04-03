@@ -65,9 +65,9 @@ class PostureAnalyzer:
     """
     
     def __init__(self, 
-                 head_tilt_threshold: float = 18.0,
-                 posture_frames: int = 7,
-                 neck_threshold: float = 30.0):
+                 head_tilt_threshold: float = 20.0,
+                 posture_frames: int = 8,
+                 neck_threshold: float = 25.0):
         """
         Args:
             head_tilt_threshold: Góc cúi đầu tối đa (độ)
@@ -177,20 +177,15 @@ class PostureAnalyzer:
         chin = face_landmarks.landmark[FaceMeshLandmarks.CHIN]
         nose = face_landmarks.landmark[FaceMeshLandmarks.NOSE_TIP]
 
-        # Robust pitch estimate for webcam: combine 2D face-ratio and depth cue.
+        # Robust pitch estimate for webcam: 2D face-ratio only.
         upper = math.sqrt((forehead.x - nose.x) ** 2 + (forehead.y - nose.y) ** 2)
         lower = math.sqrt((nose.x - chin.x) ** 2 + (nose.y - chin.y) ** 2)
         if lower == 0:
             return 0.0
 
-        ratio_pitch = (upper / lower - 1.0) * 55.0
+        ratio_pitch = (upper / lower - 1.0) * 35.0
 
-        face_height = abs(chin.y - forehead.y)
-        depth_diff = chin.z - forehead.z
-        depth_pitch = math.degrees(math.atan2(depth_diff, face_height if face_height > 1e-6 else 1e-6))
-
-        # 2D ratio is more stable with low-cost webcam; blend a small depth contribution.
-        return ratio_pitch + (0.25 * depth_pitch)
+        return ratio_pitch
 
     def calculate_head_roll(self, face_landmarks) -> float:
         """Tính góc nghiêng đầu từ Face Mesh
@@ -273,11 +268,11 @@ class PostureAnalyzer:
         
         # 3. HEAD PITCH from Face (0-20)
         abs_pitch = abs(head_pitch)
-        if abs_pitch < 10:
+        if abs_pitch < 15:
             pitch_points = 20
-        elif abs_pitch < 20:
+        elif abs_pitch < 25:
             pitch_points = 12
-        elif abs_pitch < 30:
+        elif abs_pitch < 40:
             pitch_points = 6
         else:
             pitch_points = 2
@@ -327,9 +322,10 @@ class PostureAnalyzer:
         neck_score = self.calculate_neck_posture(landmarks)
         
         # 2. Từ Face Mesh (nếu có)
+        face_available = face_landmarks is not None
         head_pitch = 0.0
         head_roll = 0.0
-        if face_landmarks is not None:
+        if face_available:
             head_pitch = self.calculate_head_pitch(face_landmarks)
             head_roll = self.calculate_head_roll(face_landmarks)
 
@@ -362,23 +358,26 @@ class PostureAnalyzer:
         posture_score = self.calculate_posture_score(
             head_tilt, shoulder_angle, neck_score, head_pitch, head_roll
         )
+
+        if not face_available:
+            return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
         
         # 4. Tracking bad posture
         is_bad = (
-            posture_score < 45
-            or neck_score < self.neck_threshold
-            or head_tilt > self.head_tilt_threshold
-            or abs(head_pitch) > 30
+            posture_score < 55
+            or head_tilt > 20.0
+            or abs(head_pitch) > 28
             or abs(head_roll) > 20
-            or relative_slouch
+            or (neck_score < 40 and relative_slouch)
         )
         
         if is_bad:
             self.bad_posture_counter += 1
         else:
             # Hồi phục nhanh khi tư thế tốt
-            self.bad_posture_counter = max(0, self.bad_posture_counter - 2)
-            self.is_bad_posture = False
+            self.bad_posture_counter = max(0, self.bad_posture_counter - 1)
+            if self.bad_posture_counter == 0:
+                self.is_bad_posture = False
             
         if self.bad_posture_counter >= self.posture_frames:
             self.is_bad_posture = True

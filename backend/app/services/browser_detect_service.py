@@ -75,6 +75,8 @@ class BrowserDetectService:
         self._start_error: str | None = None
         self._analyze_calls = 0
         self._last_debug_log_at = 0.0
+        self._ipd_history = []
+        self._IPD_WINDOW = 5
 
     def start(self) -> None:
         if self._start:
@@ -178,12 +180,20 @@ class BrowserDetectService:
         except (TypeError, ValueError):
             face_distance_ipd = None
 
+        if face_distance_ipd is not None:
+            self._ipd_history.append(face_distance_ipd)
+            if len(self._ipd_history) > self._IPD_WINDOW:
+                self._ipd_history.pop(0)
+            smoothed_ipd = sum(self._ipd_history) / len(self._ipd_history)
+        else:
+            smoothed_ipd = None
+
         is_drowsy = bool(data.get("is_drowsy", False))
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
-        is_too_close = bool(face_distance_ipd is not None and face_distance_ipd > 0.16)
-        is_too_far = bool(face_distance_ipd is not None and face_distance_ipd < 0.11)
+        is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 0.17)
+        is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < 0.10)
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}

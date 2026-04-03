@@ -242,6 +242,7 @@ export default function TimerPage() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingStartTimeRef = useRef<number | null>(null);
+  const recalibrateCalledRef = useRef(false);
 
   const sameAlertList = (a: AlertResponse[], b: AlertResponse[]) => {
     if (a.length !== b.length) return false;
@@ -588,13 +589,16 @@ export default function TimerPage() {
           setStartupCalibrationMessage(
             "Đang lấy profile cá nhân trong 10 giây trước khi bắt đầu phiên học...",
           );
-          await apiFetch<{
-            accepted: boolean;
-            message: string;
-            start_error?: string | null;
-          }>("/api/v1/monitoring/recalibrate-profile", {
-            method: "POST",
-          });
+          if (!recalibrateCalledRef.current) {
+            recalibrateCalledRef.current = true;
+            await apiFetch<{
+              accepted: boolean;
+              message: string;
+              start_error?: string | null;
+            }>("/api/v1/monitoring/recalibrate-profile", {
+              method: "POST",
+            });
+          }
           setPendingStart({ session, block });
         } catch (monitoringError: unknown) {
           setMonitoringStatus(null);
@@ -684,6 +688,7 @@ export default function TimerPage() {
     setMonitoringStatus(null);
     setRecentAlerts([]);
     setPendingStart(null);
+    recalibrateCalledRef.current = false;
     setStep("idle");
     dispatch({ type: "STOP" });
   };
