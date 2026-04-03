@@ -38,6 +38,7 @@ class NotificationBridge:
         self,
         backend_url: str = "http://localhost:8000",
         request_timeout: float = 5.0,
+        enable_backend_sync: bool = False,
     ):
         """
         Khởi tạo NotificationBridge.
@@ -48,6 +49,7 @@ class NotificationBridge:
         """
         self.backend_url = backend_url
         self.request_timeout = request_timeout
+        self.enable_backend_sync = enable_backend_sync
         
         # Nhận diện hệ điều hành
         self.system = platform.system()  # "Windows", "Linux", "Darwin" (macOS)
@@ -83,12 +85,13 @@ class NotificationBridge:
         # Gửi thông báo hệ thống dựa trên nền tảng
         self._show_system_notification(message, severity)
         
-        # Đồng bộ trạng thái với backend
-        threading.Thread(
-            target=self.sync_to_backend,
-            args=("start",),
-            daemon=True,
-        ).start()
+        # Optional backend sync (disabled by default because /alert endpoint is absent).
+        if self.enable_backend_sync:
+            threading.Thread(
+                target=self.sync_to_backend,
+                args=("start",),
+                daemon=True,
+            ).start()
 
     def clear_alerts(self) -> None:
         """
@@ -118,12 +121,13 @@ class NotificationBridge:
             # macOS notification center
             logger.debug("macOS notifications handled by system")
         
-        # Đồng bộ trạng thái với backend
-        threading.Thread(
-            target=self.sync_to_backend,
-            args=("stop",),
-            daemon=True,
-        ).start()
+        # Optional backend sync (disabled by default because /alert endpoint is absent).
+        if self.enable_backend_sync:
+            threading.Thread(
+                target=self.sync_to_backend,
+                args=("stop",),
+                daemon=True,
+            ).start()
 
     def sync_to_backend(self, status: str) -> None:
         """
@@ -280,18 +284,18 @@ class NotificationBridge:
         Xóa tất cả thông báo trên Linux.
         
         Ưu tiên:
-        1. swaync-client -cl (SwayNC, đặc biệt hỗ trợ Hyprland)
+        1. swaync-client -C (SwayNC, đặc biệt hỗ trợ Hyprland)
         2. Fallback cho systemd user timers hoặc notification daemon khác
         
         Ghi chú cho Fedora Hyprland:
         - SwayNC là mặc định; nó lưu thông báo trong một tray/center
-        - Lệnh swaync-client -cl sẽ xóa sạch tất cả thông báo ngay lập tức
+        - Lệnh swaync-client -C sẽ xóa sạch tất cả thông báo ngay lập tức
         """
         logger.debug("Clearing Linux notifications")
         
         # Thử xóa dùng swaync-client (SwayNC)
         try:
-            cmd = ["swaync-client", "-cl"]
+            cmd = ["swaync-client", "-C"]
             subprocess.run(cmd, check=False, timeout=5)
             logger.info("Notifications cleared via swaync-client")
             return

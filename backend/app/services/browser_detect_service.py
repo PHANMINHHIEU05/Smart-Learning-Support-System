@@ -192,8 +192,15 @@ class BrowserDetectService:
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
-        is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 0.17)
-        is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < 0.10)
+
+        # New analyzer emits normalized IPD ratio (~1.0 baseline).
+        # Keep backward-compatible fallback for legacy raw IPD values (~0.1-0.25).
+        if smoothed_ipd is not None and smoothed_ipd > 0.35:
+            is_too_close = bool(smoothed_ipd > 1.30)
+        else:
+            is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 0.17)
+        # User request: disable "too far from screen" warning.
+        is_too_far = False
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
@@ -204,8 +211,6 @@ class BrowserDetectService:
             derived_event = "drowsiness"
         elif is_too_close:
             derived_event = "face_too_close"
-        elif is_too_far:
-            derived_event = "face_too_far"
         elif is_using_phone:
             derived_event = "phone_detected"
         elif is_bad_posture:
@@ -229,8 +234,7 @@ class BrowserDetectService:
             labels.append({"text": "Warning: bad posture", "x": 18, "y": 74, "severity": "medium"})
         if is_too_close:
             labels.append({"text": "Warning: move farther from camera", "x": 18, "y": 96, "severity": "medium"})
-        if is_too_far:
-            labels.append({"text": "Warning: move closer to camera", "x": 18, "y": 118, "severity": "medium"})
+        # "Too far" overlay warning is intentionally disabled.
 
         overlay = {
             "pose_points": [],

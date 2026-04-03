@@ -782,7 +782,6 @@ def _is_risky_state(metrics: dict[str, Any]) -> bool:
         "is_distracted",
         "is_using_phone",
         "is_too_close",
-        "is_too_far",
     )
     return any(bool(flags.get(k)) for k in risky_flags)
 

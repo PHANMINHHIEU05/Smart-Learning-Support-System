@@ -375,8 +375,6 @@ class MainApplication:
                 event_type = 'drowsiness'
             elif is_too_close:
                 event_type = 'face_too_close'
-            elif is_too_far:
-                event_type = 'face_too_far'
             elif is_using_phone:
                 event_type = 'phone_detected'
             elif is_bad_posture_flag:

@@ -1,4 +1,5 @@
-import math 
+import math
+import time
 from typing import Tuple
 
 
@@ -88,6 +89,11 @@ class PostureAnalyzer:
         self.last_vertical_distance = 0.0
         self.last_neck_drop = 0.0
         self.neck_baseline_distance = None
+        self.face_distance_baseline = None
+        self.face_baseline_start_time = None
+        self.face_baseline_duration_sec = 5.0
+        self.last_face_distance_raw = 0.15
+        self.last_face_distance_ratio = 1.0
 
     @staticmethod
     def calculate_angle(p1, p2, p3) -> float:
@@ -125,10 +131,18 @@ class PostureAnalyzer:
         
         dx = right_shoulder.x - left_shoulder.x
         dy = right_shoulder.y - left_shoulder.y
-        
-        if dx == 0:
+        dz = (getattr(right_shoulder, "z", 0.0) or 0.0) - (
+            getattr(left_shoulder, "z", 0.0) or 0.0
+        )
+
+        shoulder_dist_3d = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if shoulder_dist_3d == 0:
             return 0.0
-        return abs(math.degrees(math.atan(dy / dx)))
+
+        # Use 3D-normalized vertical slope so yaw/depth difference is less likely
+        # to trigger a false shoulder-tilt alert.
+        sin_theta = max(0.0, min(1.0, abs(dy) / shoulder_dist_3d))
+        return abs(math.degrees(math.asin(sin_theta)))
 
     def calculate_neck_posture(self, landmarks) -> float:
         """Tính tư thế cổ/vai - THAY THẾ back curve cho webcam
@@ -360,6 +374,9 @@ class PostureAnalyzer:
         )
 
         if not face_available:
+            self.bad_posture_counter = max(0, self.bad_posture_counter - 2)
+            if self.bad_posture_counter == 0:
+                self.is_bad_posture = False
             return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
         
         # 4. Tracking bad posture
@@ -375,7 +392,7 @@ class PostureAnalyzer:
             self.bad_posture_counter += 1
         else:
             # Hồi phục nhanh khi tư thế tốt
-            self.bad_posture_counter = max(0, self.bad_posture_counter - 1)
+            self.bad_posture_counter = max(0, self.bad_posture_counter - 2)
             if self.bad_posture_counter == 0:
                 self.is_bad_posture = False
             
@@ -385,24 +402,45 @@ class PostureAnalyzer:
         return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
 
     def calculate_face_distance(self, face_landmarks) -> float:
-        """Ước tính khoảng cách mặt-camera qua IPD
+        """Ước tính khoảng cách mặt-camera qua IPD tương đối theo baseline
         
         Returns:
-            float: IPD normalized (0.05-0.3)
-            - > 0.2: Ngồi quá gần
-            - 0.1-0.2: Bình thường
-            - < 0.1: Ngồi quá xa
+            float: Tỷ lệ IPD so với baseline cá nhân
+            - 1.0: như khoảng cách chuẩn ban đầu
+            - > 1.3: ngồi quá gần
+            - < 0.75: ngồi quá xa
         """
         if face_landmarks is None:
-            return 0.15
+            return self.last_face_distance_ratio
             
         left_eye = face_landmarks.landmark[FaceMeshLandmarks.LEFT_EYE_OUTER]
         right_eye = face_landmarks.landmark[FaceMeshLandmarks.RIGHT_EYE_OUTER]
-        
-        return math.sqrt(
+
+        raw_ipd = math.sqrt(
             (left_eye.x - right_eye.x) ** 2 +
             (left_eye.y - right_eye.y) ** 2
         )
+        self.last_face_distance_raw = raw_ipd
+
+        now = time.time()
+        if self.face_distance_baseline is None:
+            self.face_distance_baseline = raw_ipd
+            self.face_baseline_start_time = now
+        elif (
+            self.face_baseline_start_time is not None
+            and (now - self.face_baseline_start_time) <= self.face_baseline_duration_sec
+        ):
+            # Learn stable baseline in first 5 seconds.
+            self.face_distance_baseline = 0.9 * self.face_distance_baseline + 0.1 * raw_ipd
+        else:
+            # Slow drift adaptation to handle minor setup changes.
+            self.face_distance_baseline = 0.995 * self.face_distance_baseline + 0.005 * raw_ipd
+
+        baseline = max(self.face_distance_baseline or raw_ipd, 1e-6)
+        ratio = raw_ipd / baseline
+        ratio = max(0.4, min(2.5, ratio))
+        self.last_face_distance_ratio = ratio
+        return ratio
 
     def get_posture_details(self) -> dict:
         """Trả về chi tiết các metrics tư thế"""
@@ -413,6 +451,9 @@ class PostureAnalyzer:
             'head_yaw': round(getattr(self, 'last_head_yaw', 0.0), 1),
             'neck_drop': round(self.last_neck_drop, 4),
             'neck_baseline': round(self.neck_baseline_distance, 4) if self.neck_baseline_distance is not None else None,
+            'face_distance_raw_ipd': round(self.last_face_distance_raw, 4),
+            'face_distance_ratio': round(self.last_face_distance_ratio, 3),
+            'face_distance_baseline': round(self.face_distance_baseline, 4) if self.face_distance_baseline is not None else None,
             'is_bad_posture': self.is_bad_posture,
             'bad_counter': self.bad_posture_counter
         }
@@ -427,4 +468,8 @@ class PostureAnalyzer:
         self.last_vertical_distance = 0.0
         self.last_neck_drop = 0.0
         self.neck_baseline_distance = None
+        self.face_distance_baseline = None
+        self.face_baseline_start_time = None
+        self.last_face_distance_raw = 0.15
+        self.last_face_distance_ratio = 1.0
 

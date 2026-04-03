@@ -43,7 +43,6 @@ const DISTRACTION_EVENTS = new Set([
   "focus_offscreen",
   "phone_detected",
   "face_too_close",
-  "face_too_far",
 ]);
 
 function wsBaseFromApiBase(apiBase: string): string {

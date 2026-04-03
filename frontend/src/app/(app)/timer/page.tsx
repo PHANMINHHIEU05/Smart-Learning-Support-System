@@ -161,7 +161,6 @@ const ERGONOMIC_EVENT_TYPES = [
   "near_screen",
   "too_close",
   "face_too_close",
-  "face_too_far",
 ];
 const PHONE_EVENT_TYPES = ["phone_detected", "DISTRACTION_PHONE"];
 
@@ -1054,7 +1053,7 @@ export default function TimerPage() {
           </p>
           <CameraWidget
             sessionId={pendingStart.session.session_id}
-            className="w-full min-h-[200px]"
+            className="w-full min-h-[160px]"
             onMetrics={handleCameraMetrics}
             onCalibrationComplete={() => setStep("studying")}
           />
@@ -1389,7 +1388,7 @@ export default function TimerPage() {
                 normalizedStatus.status === "degraded" ? (
                   <CameraWidget
                     sessionId={activeSessionId}
-                    className="w-full min-h-[180px] border border-slate-200/80"
+                    className="w-full min-h-[140px] border border-slate-200/80"
                     onMetrics={handleCameraMetrics}
                   />
                 ) : (
