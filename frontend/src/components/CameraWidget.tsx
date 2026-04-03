@@ -19,12 +19,14 @@ interface CameraWidgetProps {
   sessionId: string | null;
   className?: string;
   onMetrics?: (metrics: CameraStreamMetrics) => void;
+  onCalibrationComplete?: () => void;
 }
 
 export function CameraWidget({
   sessionId,
   className,
   onMetrics,
+  onCalibrationComplete,
 }: CameraWidgetProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -36,6 +38,7 @@ export function CameraWidget({
   const frameCounterRef = useRef(0);
   const fpsWindowStartRef = useRef<number>(Date.now());
   const lastDetectAtRef = useRef<number | null>(null);
+  const prevCalibratingRef = useRef<boolean | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [latest, setLatest] = useState<DetectResponse | null>(null);
@@ -59,6 +62,7 @@ export function CameraWidget({
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
+      prevCalibratingRef.current = null;
       detectBusyRef.current = false;
       frameSeqRef.current = 0;
       frameCounterRef.current = 0;
@@ -170,6 +174,16 @@ export function CameraWidget({
 
           if (!active) return;
           setLatest(detected);
+          const wasCalibrating = prevCalibratingRef.current;
+          const isCalibrating = Boolean(detected.is_calibrating);
+          if (
+            wasCalibrating === true &&
+            isCalibrating === false &&
+            detected.ready === true
+          ) {
+            onCalibrationComplete?.();
+          }
+          prevCalibratingRef.current = isCalibrating;
           drawOverlay(detected);
           publishMetrics(detected);
           setError(null);
@@ -223,7 +237,7 @@ export function CameraWidget({
       active = false;
       clearResources();
     };
-  }, [onMetrics, sessionId]);
+  }, [onCalibrationComplete, onMetrics, sessionId]);
 
   return (
     <div

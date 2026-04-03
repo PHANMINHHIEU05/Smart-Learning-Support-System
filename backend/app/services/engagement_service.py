@@ -216,8 +216,8 @@ async def get_penalty_history(
         query,
         {
             "user_id": str(user_id),
-            "date_from": date_from.isoformat(),
-            "date_to": date_to.isoformat(),
+            "date_from": date_from,
+            "date_to": date_to,
         },
     )
     rows = result.mappings().all()

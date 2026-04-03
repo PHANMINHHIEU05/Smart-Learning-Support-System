@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
 import { EngagementWidget } from "@/components/EngagementWidget";
 import type { DailySummary, EnemyStats, Task } from "@/types/api";
@@ -27,11 +28,16 @@ function StatCard({ label, value }: StatCardProps) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [enemyStats, setEnemyStats] = useState<EnemyStats | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    router.prefetch("/timer");
+  }, [router]);
 
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
@@ -58,9 +64,17 @@ export default function DashboardPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Dashboard</h1>
-          <p className="page-subtitle">Overview of focus, distractions, and active work.</p>
+          <p className="page-subtitle">
+            Overview of focus, distractions, and active work.
+          </p>
         </div>
-        <Link href="/timer" className="btn-primary">
+        <Link
+          href="/timer"
+          prefetch
+          onMouseEnter={() => router.prefetch("/timer")}
+          onFocus={() => router.prefetch("/timer")}
+          className="btn-primary"
+        >
           Start Session
         </Link>
       </div>
@@ -101,13 +115,17 @@ export default function DashboardPage() {
       </div>
 
       <p className="ui-pill w-fit">
-        Phone detections per session today: {loading ? "..." : (enemyStats?.phone_per_session ?? 0)}
+        Phone detections per session today:{" "}
+        {loading ? "..." : (enemyStats?.phone_per_session ?? 0)}
       </p>
 
       <div className="surface-card p-5 md:p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-xl font-bold text-slate-900">Active Tasks</h2>
-          <Link href="/tasks" className="text-sm font-semibold text-cyan-700 hover:text-cyan-800">
+          <Link
+            href="/tasks"
+            className="text-sm font-semibold text-cyan-700 hover:text-cyan-800"
+          >
             View all
           </Link>
         </div>
@@ -124,9 +142,13 @@ export default function DashboardPage() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{task.title}</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {task.title}
+                    </p>
                     {task.subject_name && (
-                      <p className="mt-1 text-xs text-slate-500">{task.subject_name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {task.subject_name}
+                      </p>
                     )}
                   </div>
                   <span className="ui-pill capitalize">{task.status}</span>

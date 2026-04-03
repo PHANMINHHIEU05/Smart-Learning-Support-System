@@ -1,13 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { apiFetch } from "@/lib/api-client";
 import { BreakOverlay202020 } from "@/components/BreakOverlay202020";
-import {
-  CameraWidget,
-  type CameraStreamMetrics,
-} from "@/components/CameraWidget";
-import { WhiteNoiseControl } from "@/components/WhiteNoiseControl";
+import type { CameraStreamMetrics } from "@/components/CameraWidget";
 import {
   DEFAULT_CRITICAL_EVENT_TYPES,
   MODE_LABELS,
@@ -29,6 +26,31 @@ import type {
   Task,
   UserSetting,
 } from "@/types/api";
+
+const CameraWidget = dynamic(
+  () => import("@/components/CameraWidget").then((m) => m.CameraWidget),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-xl border border-slate-200 bg-slate-100 p-3 text-xs text-slate-500">
+        Initializing camera widget...
+      </div>
+    ),
+  },
+);
+
+const WhiteNoiseControl = dynamic(
+  () =>
+    import("@/components/WhiteNoiseControl").then((m) => m.WhiteNoiseControl),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="surface-card p-4 text-xs text-slate-500">
+        Loading white noise controls...
+      </div>
+    ),
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Timer state machine
@@ -157,6 +179,7 @@ function shouldShowExternalDisplay(mode: string): boolean {
 // ---------------------------------------------------------------------------
 
 export default function TimerPage() {
+  const [step, setStep] = useState<"idle" | "calibrating" | "studying">("idle");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
   const [settings, setSettings] = useState<UserSetting | null>(null);
@@ -218,6 +241,7 @@ export default function TimerPage() {
   } | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingStartTimeRef = useRef<number | null>(null);
 
   const sameAlertList = (a: AlertResponse[], b: AlertResponse[]) => {
     if (a.length !== b.length) return false;
@@ -315,6 +339,12 @@ export default function TimerPage() {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [timer.status, timer.session?.session_id, pendingStart, pollMonitoring]);
+
+  useEffect(() => {
+    if (pendingStart && step === "idle") {
+      setStep("calibrating");
+    }
+  }, [pendingStart, step]);
 
   const handleCameraMetrics = useCallback((metrics: CameraStreamMetrics) => {
     setStreamMetrics(metrics);
@@ -462,10 +492,38 @@ export default function TimerPage() {
       return;
     }
 
-    if (calibrationStatus.profile_ready) {
-      setStartupCalibrationMessage(
-        "Profile cá nhân đã sẵn sàng. Bắt đầu phiên học.",
-      );
+    setStartupCalibrationMessage(
+      calibrationStatus.profile_ready
+        ? "Profile cá nhân đã sẵn sàng. Bắt đầu phiên học!"
+        : "Bắt đầu phiên học (không có profile cá nhân).",
+    );
+
+    dispatch({
+      type: "START",
+      session: pendingStart.session,
+      block: pendingStart.block,
+      seconds: focusSec,
+    });
+    setPendingStart(null);
+
+    setTimeout(() => setStartupCalibrationMessage(null), 2000);
+  }, [pendingStart, calibrationStatus, focusSec]);
+
+  useEffect(() => {
+    if (pendingStart) {
+      pendingStartTimeRef.current = Date.now();
+    } else {
+      pendingStartTimeRef.current = null;
+    }
+  }, [pendingStart]);
+
+  useEffect(() => {
+    if (!pendingStart) return;
+
+    const timeout = setTimeout(() => {
+      if (!pendingStart) return;
+      console.warn("Calibration timeout fallback: forcing session start");
+      setStartupCalibrationMessage("Bắt đầu phiên học (calibration timeout).");
       dispatch({
         type: "START",
         session: pendingStart.session,
@@ -473,13 +531,11 @@ export default function TimerPage() {
         seconds: focusSec,
       });
       setPendingStart(null);
-      return;
-    }
+      setTimeout(() => setStartupCalibrationMessage(null), 2000);
+    }, 15000);
 
-    setStartupCalibrationMessage(
-      "Đang chờ nhận diện khuôn mặt để lấy profile cá nhân...",
-    );
-  }, [pendingStart, calibrationStatus, focusSec]);
+    return () => clearTimeout(timeout);
+  }, [pendingStart, focusSec]);
 
   const handleStart = async () => {
     if (!settings) return;
@@ -487,6 +543,7 @@ export default function TimerPage() {
     setError(null);
     setStartupCalibrationMessage(null);
     setPendingStart(null);
+    setStep("calibrating");
     setAckedAlertIds(new Set());
     try {
       const session = await apiFetch<StudySession>("/api/v1/sessions/", {
@@ -541,6 +598,7 @@ export default function TimerPage() {
           setPendingStart({ session, block });
         } catch (monitoringError: unknown) {
           setMonitoringStatus(null);
+          setStep("idle");
           setError(
             monitoringError instanceof Error
               ? `Monitoring failed to start: ${monitoringError.message}`
@@ -549,9 +607,11 @@ export default function TimerPage() {
           return;
         }
       } else {
+        setStep("studying");
         dispatch({ type: "START", session, block, seconds: focusSec });
       }
     } catch (e: unknown) {
+      setStep("idle");
       setError(e instanceof Error ? e.message : "Failed to start session");
     } finally {
       setStarting(false);
@@ -623,6 +683,8 @@ export default function TimerPage() {
     setStreamMetrics(null);
     setMonitoringStatus(null);
     setRecentAlerts([]);
+    setPendingStart(null);
+    setStep("idle");
     dispatch({ type: "STOP" });
   };
 
@@ -936,6 +998,8 @@ export default function TimerPage() {
   };
 
   const eyeRestCadenceLabel = formatTime(eyeRestNextPromptSec);
+  const activeSessionId =
+    timer.session?.session_id ?? pendingStart?.session.session_id ?? null;
 
   const progressPct = (() => {
     if (timer.status === "idle") return 0;
@@ -949,6 +1013,66 @@ export default function TimerPage() {
       ? Math.round(((total - timer.secondsLeft) / total) * 100)
       : 0;
   })();
+
+  const showStudying = step === "studying" || timer.status !== "idle";
+
+  if (pendingStart) {
+    return (
+      <div className="app-page mx-auto max-w-5xl space-y-4">
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        )}
+        <div className="surface-card max-w-xl space-y-4 p-6">
+          <h2 className="font-semibold text-slate-800">
+            Đang lấy profile cá nhân...
+          </h2>
+          <p className="text-sm text-slate-600">
+            Vui lòng ngồi thẳng và nhìn vào camera trong 10 giây.
+          </p>
+          {startupCalibrationMessage && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {startupCalibrationMessage}
+            </div>
+          )}
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-amber-500 transition-all duration-300"
+              style={{
+                width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
+              }}
+            />
+          </div>
+          <p className="text-right text-xs text-slate-500">
+            {Math.round(calibrationStatus?.calibration_progress ?? 0)}%
+          </p>
+          <CameraWidget
+            sessionId={pendingStart.session.session_id}
+            className="w-full min-h-[200px]"
+            onMetrics={handleCameraMetrics}
+            onCalibrationComplete={() => setStep("studying")}
+          />
+          <button
+            onClick={() => {
+              dispatch({
+                type: "START",
+                session: pendingStart.session,
+                block: pendingStart.block,
+                seconds: focusSec,
+              });
+              setPendingStart(null);
+              setStep("studying");
+              setStartupCalibrationMessage(null);
+            }}
+            className="btn-soft w-full text-sm"
+          >
+            Bỏ qua, bắt đầu ngay
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-page mx-auto max-w-5xl">
@@ -972,7 +1096,7 @@ export default function TimerPage() {
         </div>
       )}
 
-      {timer.status === "idle" ? (
+      {step === "idle" ? (
         <div className="surface-card max-w-xl space-y-4 p-6">
           <div>
             <label className="field-label">Task (optional)</label>
@@ -1016,27 +1140,6 @@ export default function TimerPage() {
             </div>
           )}
 
-          {pendingStart && settings?.ai_monitoring_enabled !== false && (
-            <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-              <p className="text-xs font-medium text-amber-800">
-                Đang quét profile cá nhân 10 giây trước khi bắt đầu phiên học.
-              </p>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
-                <div
-                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
-                  style={{
-                    width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
-                  }}
-                />
-              </div>
-              <CameraWidget
-                sessionId={pendingStart.session.session_id}
-                className="w-full min-h-[180px] border border-slate-200/80"
-                onMetrics={handleCameraMetrics}
-              />
-            </div>
-          )}
-
           <button
             onClick={handleStart}
             disabled={starting || !settings || pendingStart !== null}
@@ -1045,7 +1148,7 @@ export default function TimerPage() {
             {starting ? "Starting..." : "Start Pomodoro"}
           </button>
         </div>
-      ) : (
+      ) : showStudying ? (
         <div className="space-y-4">
           {interventionState?.escalation_level === "warning" && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1280,7 +1383,7 @@ export default function TimerPage() {
                 (normalizedStatus.status === "active" ||
                 normalizedStatus.status === "degraded" ? (
                   <CameraWidget
-                    sessionId={timer.session?.session_id ?? null}
+                    sessionId={activeSessionId}
                     className="w-full min-h-[180px] border border-slate-200/80"
                     onMetrics={handleCameraMetrics}
                   />
@@ -1380,6 +1483,10 @@ export default function TimerPage() {
             )}
 
           <WhiteNoiseControl />
+        </div>
+      ) : (
+        <div className="surface-card max-w-xl p-6 text-sm text-slate-600">
+          Preparing study session...
         </div>
       )}
 

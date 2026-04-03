@@ -24,6 +24,7 @@ _MONITORING_ROOT = Path(__file__).resolve().parents[1]
 _MODEL_FACE_PATH = str(_MONITORING_ROOT / "models" / "face_landmarker.task")
 _MODEL_POSE_PATH = str(_MONITORING_ROOT / "models" / "pose_landmarker_lite.task")
 _USER_PROFILE_PATH = str(_MONITORING_ROOT / "data" / "user_profile.json")
+MAX_CALIBRATION_SEC = 20.0
 
 
 class AIProcessorThread(threading.Thread):
@@ -311,21 +312,41 @@ class AIProcessorThread(threading.Thread):
                     is_bad_posture = True
 
             # Auto calibration flow: collect stable baseline samples in first seconds.
-            if self.auto_calibrating and self.calibrator is not None and face_landmarks is not None:
-                self.calibrator.add_sample(
-                    ear_avg=ear_avg,
-                    head_tilt=head_tilt,
-                    shoulder_angle=shoulder_angle,
-                    distance=face_distance_ipd,
-                    head_pitch=float(posture_details.get('head_pitch', 0.0) or 0.0),
-                    ipd=face_distance_ipd,
-                )
-                if self.calibrator.is_complete():
-                    profile = self.calibrator.finish()
-                    if profile is not None:
-                        profile.save_to_file(_USER_PROFILE_PATH)
-                        self.user_profile = profile
-                        print("✅ Đã tạo profile cá nhân mới cho giám sát tư thế")
+            if self.auto_calibrating and self.calibrator is not None:
+                if self.calibrator.start_time is not None:
+                    elapsed = time.time() - self.calibrator.start_time
+                    if elapsed > MAX_CALIBRATION_SEC:
+                        print("⚠️ Calibration timeout — force stop")
+                        if len(self.calibrator.ear_samples) < 10:
+                            print(
+                                f"⚠️ Calibration timeout with only {len(self.calibrator.ear_samples)} samples"
+                            )
+                        self.auto_calibrating = False
+                        self.calibrator.is_calibrating = False
+
+                if self.auto_calibrating and face_landmarks is not None:
+                    self.calibrator.add_sample(
+                        ear_avg=ear_avg,
+                        head_tilt=head_tilt,
+                        shoulder_angle=shoulder_angle,
+                        distance=face_distance_ipd,
+                        head_pitch=float(posture_details.get('head_pitch', 0.0) or 0.0),
+                        ipd=face_distance_ipd,
+                    )
+
+                if self.auto_calibrating and self.calibrator.is_complete():
+                    sample_count = len(self.calibrator.ear_samples)
+                    if sample_count < 10:
+                        print(
+                            f"⚠️ Calibration complete but only {sample_count} samples collected; stopping anyway"
+                        )
+                        self.calibrator.is_calibrating = False
+                    else:
+                        profile = self.calibrator.finish()
+                        if profile is not None:
+                            profile.save_to_file(_USER_PROFILE_PATH)
+                            self.user_profile = profile
+                            print("✅ Đã tạo profile cá nhân mới cho giám sát tư thế")
                     self.auto_calibrating = False
 
                 # During calibration we avoid posture alerts to reduce false positives.

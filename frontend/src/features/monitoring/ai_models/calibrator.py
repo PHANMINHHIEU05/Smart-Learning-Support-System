@@ -44,6 +44,8 @@ class Calibrator:
         """Thêm mẫu dữ liệu vào buffer"""
         if not self.is_calibrating:
             return
+        if ear_avg < 0.01:
+            return
         
         self.ear_samples.append(ear_avg)
         self.head_tilt_samples.append(head_tilt)
@@ -81,8 +83,8 @@ class Calibrator:
 
     def finish(self) -> Optional[UserProfile]:
         """Hoàn thành calibration và tạo UserProfile"""
-        if len(self.ear_samples) < 30:
-            print("❌ Không đủ mẫu dữ liệu (cần ít nhất 30)")
+        if len(self.ear_samples) < 10:
+            print("❌ Không đủ mẫu dữ liệu (cần ít nhất 10)")
             return None
         
         profile = UserProfile(

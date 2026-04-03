@@ -2,8 +2,6 @@ Terminal 1:
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/backend
 python3.10 -m venv .venv310
 source .venv310/bin/activate
-pip install -r requirements.txt
-pip install -r ../frontend/src/features/monitoring/requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Terminal 2:

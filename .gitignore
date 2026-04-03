@@ -58,7 +58,18 @@ backend/data/user_profile.json
 
 # Backend
 backend/.env
+backend/.env.local
+backend/.env.*
 backend/venv/
+backend/.venv/
+backend/.venv*/
+
+# Monitoring runtime env
+frontend/src/features/monitoring/venv/
+frontend/src/features/monitoring/.venv/
+frontend/src/features/monitoring/.env
+frontend/src/features/monitoring/.env.local
+frontend/src/features/monitoring/.env.*
 
 # Frontend
 frontend/node_modules/

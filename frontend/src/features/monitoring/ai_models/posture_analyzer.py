@@ -65,9 +65,9 @@ class PostureAnalyzer:
     """
     
     def __init__(self, 
-                 head_tilt_threshold: float = 10.0,
+                 head_tilt_threshold: float = 18.0,
                  posture_frames: int = 7,
-                 neck_threshold: float = 45.0):
+                 neck_threshold: float = 30.0):
         """
         Args:
             head_tilt_threshold: Góc cúi đầu tối đa (độ)
@@ -365,11 +365,11 @@ class PostureAnalyzer:
         
         # 4. Tracking bad posture
         is_bad = (
-            posture_score < 55
+            posture_score < 45
             or neck_score < self.neck_threshold
             or head_tilt > self.head_tilt_threshold
-            or abs(head_pitch) > 22
-            or abs(head_roll) > 15
+            or abs(head_pitch) > 30
+            or abs(head_roll) > 20
             or relative_slouch
         )
         
