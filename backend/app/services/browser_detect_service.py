@@ -209,6 +209,10 @@ class BrowserDetectService:
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
+        posture_error_message = data.get("posture_error_message")
+        if posture_error_message is not None:
+            posture_error_message = str(posture_error_message).strip() or None
+        posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
 
         raw_face_ipd = None
         if isinstance(posture_details, dict):
@@ -224,7 +228,6 @@ class BrowserDetectService:
         is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < FACE_TOO_FAR_RATIO_THRESHOLD)
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
-        posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
         is_calibrating = bool(data.get("is_calibrating", False))
         calibration_progress = float(data.get("calibration_progress", 0.0) or 0.0)
 
@@ -252,7 +255,14 @@ class BrowserDetectService:
         if is_drowsy:
             labels.append({"text": "Warning: drowsy detected", "x": 18, "y": 52, "severity": "critical"})
         if is_bad_posture:
-            labels.append({"text": "Warning: bad posture", "x": 18, "y": 74, "severity": "medium"})
+            labels.append(
+                {
+                    "text": posture_error_message or "Warning: bad posture",
+                    "x": 18,
+                    "y": 74,
+                    "severity": "medium",
+                }
+            )
         if is_too_close:
             labels.append({"text": "Warning: move farther from camera", "x": 18, "y": 96, "severity": "medium"})
         # "Too far" overlay warning is intentionally disabled.
@@ -311,6 +321,7 @@ class BrowserDetectService:
             "calibration_progress": round(max(0.0, min(100.0, calibration_progress)), 1),
             "focus_score": round(focus_score, 2),
             "confidence": round(max(0.0, min(1.0, focus_score / 100.0)), 3),
+            "posture_error_message": posture_error_message,
             "state_flags": {
                 "is_drowsy": is_drowsy,
                 "is_bad_posture": is_bad_posture,

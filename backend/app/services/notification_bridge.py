@@ -16,7 +16,6 @@ import platform
 import subprocess
 import threading
 import time
-from typing import Optional
 
 import requests
 

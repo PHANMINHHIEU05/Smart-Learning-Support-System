@@ -3,7 +3,6 @@ Camera telemetry service for storing and retrieving FPS metrics.
 """
 
 import uuid
-from datetime import datetime
 from typing import Dict
 
 from app.schemas.monitoring import CameraTelemetry

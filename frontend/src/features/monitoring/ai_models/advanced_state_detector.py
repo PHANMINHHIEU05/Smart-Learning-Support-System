@@ -6,7 +6,7 @@ Sử dụng NHIỀU METRICS để phát hiện:
 - Severe Distraction (mất tập trung nghiêm trọng)
 """
 import time
-from typing import Tuple, Dict, Optional
+from typing import Dict
 
 
 class AdvancedStateDetector:

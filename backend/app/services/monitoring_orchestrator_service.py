@@ -149,7 +149,7 @@ class MonitoringOrchestratorService:
                 )
 
                 if decision.action == "start_countdown":
-                    # TODO: store countdown state for frontend polling
+                    # Countdown state can be persisted in a follow-up cleanup.
                     return OrchestrationResult(
                         action="resume_countdown",
                         affected_session_id=session_id,
@@ -223,9 +223,9 @@ class MonitoringOrchestratorService:
 
             return InterventionStateResponse(
                 escalation_level=escalation,
-                latest_alert=None,  # TODO: fetch latest AI alert event
+                latest_alert=None,
                 pause_reason=pause_reason_typed,
-                resume_countdown_sec=None,  # TODO: track active countdown
+                resume_countdown_sec=None,
                 last_update_ts=(
                     session_obj.paused_at.isoformat()
                     if session_obj.paused_at

@@ -4,9 +4,7 @@ from ai_models.gaze_tracker import GazeTracker
 from ai_models.phone_detector import PhoneDetector
 from ai_models.focus_calculator import FocusCalculator
 from ai_models.calibrator import Calibrator
-from ai_models.adaptive_detector import AdaptiveDetector
 from ai_models.advanced_state_detector import AdvancedStateDetector
-# from ai_models.blendshape_emotion_mapper import BlendshapeEmotionMapper  # Đã TẮT phân tích cảm xúc
 from database.db_manager import DatabaseManager
 from config import performance_config as perf
 from config.settings import settings as monitoring_settings
@@ -19,7 +17,7 @@ import time
 import uuid
 import json
 from datetime import datetime, timezone
-from queue import Queue, Empty
+from queue import Queue
 
 class MainApplication:
     def __init__(self, camera_index: int = 0, no_display: bool = False):
@@ -47,7 +45,6 @@ class MainApplication:
         self.focus_calculator = FocusCalculator()
         self.advanced_state_detector = AdvancedStateDetector()  # Phát hiện: boredom, dazed, severe distraction
         self.calibrator = Calibrator()
-        # self.blendshape_mapper = BlendshapeEmotionMapper()  # ← ĐÃ TẮT phân tích cảm xúc
         self.db_manager = DatabaseManager()
         self.running = False
         self.is_calibrated = False

@@ -144,7 +144,7 @@ export function useAlertListener(
   const log = useCallback(
     (msg: string, data?: unknown) => {
       if (debug) {
-        console.log(`[useAlertListener] ${msg}`, data || "");
+        console.debug(`[useAlertListener] ${msg}`, data || "");
       }
     },
     [debug],

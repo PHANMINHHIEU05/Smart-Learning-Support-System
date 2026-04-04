@@ -61,6 +61,10 @@ class BrowserDetectResponse(BaseModel):
     derived_event: str | None = Field(
         default=None, description="Derived AI event type (drowsiness, phone_detected, etc.)"
     )
+    posture_error_message: str | None = Field(
+        default=None,
+        description="User-friendly posture warning text from AI posture analyzer"
+    )
     is_calibrating: bool = Field(
         default=False,
         description="Whether AI runtime is currently collecting personal baseline samples"

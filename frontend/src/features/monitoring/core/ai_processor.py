@@ -8,7 +8,6 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 from typing import Optional, Dict
 import sys
-import os
 from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -305,10 +304,8 @@ class AIProcessorThread(threading.Thread):
             ear_avg = (ear_left + ear_right) / 2.0
 
             # Posture analysis
-            head_tilt, shoulder_angle, posture_score, is_bad_posture = 0.0, 0.0, 100.0, False
-            if pose_landmarks:
-                head_tilt, shoulder_angle, posture_score, is_bad_posture = \
-                    self.posture_analyzer.process(pose_landmarks, face_landmarks)
+            head_tilt, shoulder_angle, posture_score, is_bad_posture, posture_error_message = \
+                self.posture_analyzer.process(pose_landmarks, face_landmarks)
 
             # Face distance
             face_distance_ipd = 0.15
@@ -371,6 +368,7 @@ class AIProcessorThread(threading.Thread):
 
                 # During calibration we avoid posture alerts to reduce false positives.
                 is_bad_posture = False
+                posture_error_message = ""
 
             # Phone detection for backend browser pipeline.
             if self.enable_phone_detection and self.phone_detector is not None:
@@ -398,6 +396,7 @@ class AIProcessorThread(threading.Thread):
                 'posture_score': round(posture_score, 2),
                 'face_distance_ipd': round(face_distance_ipd, 3),
                 'posture_details': posture_details,
+                'posture_error_message': posture_error_message,
                 'emotion': self.current_emotion,
                 'emotion_confidence': round(self.emotion_confidence, 2),
                 'focus_score': focus_score,

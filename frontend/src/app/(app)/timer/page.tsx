@@ -170,6 +170,14 @@ const ERGONOMIC_ACTIVE_WINDOW_MS = 30000;
 const EYE_REST_CADENCE_SEC = 20 * 60;
 const EYE_REST_OVERLAY_SEC = 20;
 
+function normalizeMonitoringMode(mode: string | null | undefined): string {
+  if (mode === "alerts_only") return "alerts_only";
+  if (mode === "in_web_widget" || mode === "external_camera") {
+    return "browser_camera";
+  }
+  return mode ?? "browser_camera";
+}
+
 function shouldShowExternalDisplay(mode: string): boolean {
   return mode === "external_camera";
 }
@@ -392,14 +400,9 @@ export default function TimerPage() {
     criticalEventTypes,
   );
 
-  const selectedModeRaw =
-    normalizedStatus.activeMode ??
-    settings?.monitoring_mode ??
-    "browser_camera";
-  const selectedMode =
-    selectedModeRaw === "in_web_widget" || selectedModeRaw === "external_camera"
-      ? "browser_camera"
-      : selectedModeRaw;
+  const selectedMode = normalizeMonitoringMode(
+    normalizedStatus.activeMode ?? settings?.monitoring_mode,
+  );
   const criticalSoundEnabled = settings?.critical_sound_enabled ?? true;
 
   // Compute FPS status color (Green/Yellow/Red)
@@ -584,11 +587,9 @@ export default function TimerPage() {
       // Bật giám sát AI nếu được bật trong settings
       if (settings.ai_monitoring_enabled !== false) {
         try {
-          const preferredMode =
-            settings.monitoring_mode === "in_web_widget" ||
-            settings.monitoring_mode === "external_camera"
-              ? "browser_camera"
-              : (settings.monitoring_mode ?? "browser_camera");
+          const preferredMode = normalizeMonitoringMode(
+            settings.monitoring_mode,
+          );
           const status = await apiFetch<MonitoringStatusResponse>(
             "/api/v1/monitoring/start",
             {
@@ -728,20 +729,9 @@ export default function TimerPage() {
   const handleRetryMonitoring = async () => {
     if (!timer.session) return;
     try {
-      const preferredModeSetting =
-        settings?.monitoring_mode === "in_web_widget" ||
-        settings?.monitoring_mode === "external_camera"
-          ? "browser_camera"
-          : settings?.monitoring_mode;
-      const rawModeForRetry =
-        preferredModeSetting ??
-        monitoringStatus?.active_mode ??
-        "browser_camera";
-      const modeForRetry =
-        rawModeForRetry === "in_web_widget" ||
-        rawModeForRetry === "external_camera"
-          ? "browser_camera"
-          : rawModeForRetry;
+      const modeForRetry = normalizeMonitoringMode(
+        settings?.monitoring_mode ?? monitoringStatus?.active_mode,
+      );
       const status = await apiFetch<MonitoringStatusResponse>(
         "/api/v1/monitoring/start",
         {

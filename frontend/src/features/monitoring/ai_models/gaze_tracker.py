@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple
 
 
 # MediaPipe Face Mesh Landmarks

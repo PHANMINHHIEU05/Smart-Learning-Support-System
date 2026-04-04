@@ -275,6 +275,12 @@ export function CameraWidget({
           {error}
         </div>
       ) : null}
+
+      {!error && latest?.posture_error_message ? (
+        <div className="absolute bottom-2 left-2 right-2 rounded bg-amber-500/90 px-2 py-1 text-xs text-slate-950">
+          {latest.posture_error_message}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -101,6 +101,15 @@ class PostureAnalyzer:
         self._screen_frames = 0
         self._WRITING_CONFIRM = 5
         self._SCREEN_CONFIRM = 8
+        self._missing_started_at = None
+        self._baseline_neck_distance = None
+        self._baseline_pitch = None
+        self._baseline_samples = 0
+        self._BASELINE_SAMPLES_REQUIRED = 30
+        self._BASELINE_DEVIATION_RATIO = 0.30
+        self._MISSING_TIMEOUT_SEC = 3.0
+        self.last_error_code = ""
+        self.last_error_message = ""
 
     @staticmethod
     def calculate_angle(p1, p2, p3) -> float:
@@ -332,12 +341,12 @@ class PostureAnalyzer:
         total = neck_points + head_tilt_points + pitch_points + shoulder_points + roll_points
         return min(100.0, max(0.0, total))
 
-    def _detect_activity(self, head_pitch, head_tilt,
-                         neck_score, head_yaw) -> str:
+    def _detect_activity(self, head_pitch, shoulder_angle, head_yaw) -> str:
+        # Writing thường có pitch cao nhưng vai vẫn ổn định.
         is_writing_posture = (
-            head_pitch > 15
-            and abs(head_yaw) < 20
-            and neck_score < 70
+            head_pitch > 12
+            and shoulder_angle < 8
+            and abs(head_yaw) < 25
         )
         if is_writing_posture:
             self._writing_frames += 1
@@ -353,7 +362,7 @@ class PostureAnalyzer:
 
         return self._activity
 
-    def process(self, pose_landmarks, face_landmarks=None) -> Tuple[float, float, float, bool]:
+    def process(self, pose_landmarks, face_landmarks=None) -> Tuple[float, float, float, bool, str]:
         """Xử lý và trả về kết quả phân tích tư thế
         
         Args:
@@ -361,10 +370,26 @@ class PostureAnalyzer:
             face_landmarks: MediaPipe Face Mesh landmarks (optional, để tính head pitch/roll)
         
         Returns:
-            (head_tilt, shoulder_angle, posture_score, is_bad_posture)
+            (head_tilt, shoulder_angle, posture_score, is_bad_posture, error_message)
         """
-        if pose_landmarks is None:
-            return 0.0, 0.0, 100.0, False
+        now = time.time()
+        if pose_landmarks is None or face_landmarks is None:
+            if self._missing_started_at is None:
+                self._missing_started_at = now
+
+            missing_duration = now - self._missing_started_at
+            if missing_duration >= self._MISSING_TIMEOUT_SEC:
+                self.last_error_code = "ERR_MISSING"
+                self.last_error_message = "Không phát hiện người dùng, vui lòng quay lại trước webcam"
+                self.is_bad_posture = True
+                return 0.0, 0.0, 0.0, True, self.last_error_message
+
+            self.last_error_code = ""
+            self.last_error_message = ""
+            self.is_bad_posture = False
+            return 0.0, 0.0, 100.0, False, ""
+
+        self._missing_started_at = None
             
         landmarks = pose_landmarks.landmark
         
@@ -373,38 +398,42 @@ class PostureAnalyzer:
         shoulder_angle = self.calculate_shoulder_angle(landmarks)
         neck_score = self.calculate_neck_posture(landmarks)
         
-        # 2. Từ Face Mesh (nếu có)
-        face_available = face_landmarks is not None
-        head_pitch = 0.0
-        head_roll = 0.0
-        if face_available:
-            head_pitch = self.calculate_head_pitch(face_landmarks)
-            head_roll = self.calculate_head_roll(face_landmarks)
+        # 2. Từ Face Mesh
+        head_pitch = self.calculate_head_pitch(face_landmarks)
+        head_roll = self.calculate_head_roll(face_landmarks)
 
-        # Adaptive neck baseline per user/camera.
-        if self.neck_baseline_distance is None:
-            self.neck_baseline_distance = self.last_vertical_distance
-        elif neck_score >= 65 and abs(head_pitch) < 12 and head_tilt < 8:
-            self.neck_baseline_distance = (
-                0.95 * self.neck_baseline_distance + 0.05 * self.last_vertical_distance
-            )
+        # 2.5. Tính head_yaw
+        head_yaw = self.calculate_head_yaw(face_landmarks)
+        self.last_head_yaw = head_yaw
+
+        # 2.6. Calibration baseline đầu phiên
+        stable_pose = shoulder_angle < 10 and abs(head_roll) < 12 and abs(head_yaw) < 25
+        if stable_pose and self._baseline_samples < self._BASELINE_SAMPLES_REQUIRED:
+            if self._baseline_neck_distance is None:
+                self._baseline_neck_distance = self.last_vertical_distance
+                self._baseline_pitch = head_pitch
+            else:
+                alpha = 0.1
+                self._baseline_neck_distance = (
+                    (1 - alpha) * self._baseline_neck_distance + alpha * self.last_vertical_distance
+                )
+                self._baseline_pitch = (
+                    (1 - alpha) * (self._baseline_pitch if self._baseline_pitch is not None else head_pitch)
+                    + alpha * head_pitch
+                )
+            self._baseline_samples += 1
+
+        self.neck_baseline_distance = self._baseline_neck_distance
 
         neck_drop = 0.0
-        if self.neck_baseline_distance is not None:
-            neck_drop = max(0.0, self.neck_baseline_distance - self.last_vertical_distance)
+        if self._baseline_neck_distance is not None:
+            neck_drop = max(0.0, self._baseline_neck_distance - self.last_vertical_distance)
         self.last_neck_drop = neck_drop
-        relative_slouch = neck_drop > 0.028
         
         # Lưu lại
         self.last_neck_score = neck_score
         self.last_head_pitch = head_pitch
         self.last_head_roll = head_roll
-        
-        # 2.5. Tính head_yaw (nếu có face landmarks)
-        head_yaw = 0.0
-        if face_landmarks is not None:
-            head_yaw = self.calculate_head_yaw(face_landmarks)
-        self.last_head_yaw = head_yaw
         
         # 3. Tính tổng điểm
         posture_score = self.calculate_posture_score(
@@ -412,29 +441,66 @@ class PostureAnalyzer:
         )
 
         activity = self._detect_activity(
-            head_pitch, head_tilt, neck_score,
-            getattr(self, 'last_head_yaw', 0.0)
+            head_pitch,
+            shoulder_angle,
+            self.last_head_yaw,
         )
 
-        if not face_available:
-            return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
-        
-        # 4. Tracking bad posture
-        if activity == "writing":
-            is_bad = (
-                posture_score < 35
-                or head_tilt > 25.0
-                or abs(head_pitch) > 50
-                or abs(head_roll) > 25
+        # 4. Core error detection theo rule mới
+        error_code = ""
+        error_message = ""
+
+        # ERR_LEANING: nghiêng đầu/nghiêng vai
+        if abs(head_roll) > 15 or shoulder_angle > 10:
+            error_code = "ERR_LEANING"
+            error_message = "Vui lòng ngồi thẳng đầu và cân bằng vai"
+
+        # ERR_SLUMP: chỉ bắt khi đang screen, bỏ qua writing
+        if not error_code and activity == "screen" and self._baseline_neck_distance is not None:
+            neck_drop_ratio = 0.0
+            if self._baseline_neck_distance > 1e-6:
+                neck_drop_ratio = (
+                    (self._baseline_neck_distance - self.last_vertical_distance)
+                    / self._baseline_neck_distance
+                )
+
+            left_ear = landmarks[PoseLandmark.LEFT_EAR]
+            right_ear = landmarks[PoseLandmark.RIGHT_EAR]
+            left_shoulder = landmarks[PoseLandmark.LEFT_SHOULDER]
+            right_shoulder = landmarks[PoseLandmark.RIGHT_SHOULDER]
+
+            left_ear_shoulder = math.sqrt(
+                (left_ear.x - left_shoulder.x) ** 2 + (left_ear.y - left_shoulder.y) ** 2
             )
-        else:
-            is_bad = (
-                posture_score < 55
-                or head_tilt > 20.0
-                or abs(head_pitch) > 28
-                or abs(head_roll) > 20
-                or (neck_score < 40 and relative_slouch)
+            right_ear_shoulder = math.sqrt(
+                (right_ear.x - right_shoulder.x) ** 2 + (right_ear.y - right_shoulder.y) ** 2
             )
+            min_ear_shoulder = min(left_ear_shoulder, right_ear_shoulder)
+
+            shoulder_width = math.sqrt(
+                (right_shoulder.x - left_shoulder.x) ** 2 + (right_shoulder.y - left_shoulder.y) ** 2
+            )
+            ear_shoulder_ratio = min_ear_shoulder / max(shoulder_width, 1e-6)
+
+            slump_by_neck = neck_drop_ratio > self._BASELINE_DEVIATION_RATIO
+            slump_by_ear = ear_shoulder_ratio < 0.52
+            if slump_by_neck or slump_by_ear:
+                error_code = "ERR_SLUMP"
+                error_message = "Bạn đang cúi quá thấp, hãy nâng cổ và ngồi thẳng"
+
+        # Pitch deviation guard theo baseline (30%) để giảm nhiễu.
+        if (
+            error_code == "ERR_SLUMP"
+            and self._baseline_pitch is not None
+            and activity == "screen"
+        ):
+            pitch_delta = abs(head_pitch - self._baseline_pitch)
+            pitch_threshold = max(abs(self._baseline_pitch) * self._BASELINE_DEVIATION_RATIO, 8.0)
+            if pitch_delta < pitch_threshold:
+                error_code = ""
+                error_message = ""
+
+        is_bad = bool(error_code)
         
         if is_bad:
             self.bad_posture_counter += 1
@@ -446,8 +512,11 @@ class PostureAnalyzer:
             
         if self.bad_posture_counter >= self.posture_frames:
             self.is_bad_posture = True
+
+        self.last_error_code = error_code
+        self.last_error_message = error_message
             
-        return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
+        return head_tilt, shoulder_angle, posture_score, self.is_bad_posture, error_message
 
     def calculate_face_distance(self, face_landmarks) -> float:
         """Ước tính khoảng cách mặt-camera qua IPD tương đối theo baseline
@@ -507,6 +576,10 @@ class PostureAnalyzer:
             'activity': self._activity,
             'writing_frames': self._writing_frames,
             'screen_frames': self._screen_frames,
+            'error_code': self.last_error_code,
+            'error_message': self.last_error_message,
+            'baseline_pitch': round(self._baseline_pitch, 2) if self._baseline_pitch is not None else None,
+            'baseline_samples': self._baseline_samples,
         }
 
     def reset(self):
@@ -528,4 +601,10 @@ class PostureAnalyzer:
         self._activity = "screen"
         self._writing_frames = 0
         self._screen_frames = 0
+        self._missing_started_at = None
+        self._baseline_neck_distance = None
+        self._baseline_pitch = None
+        self._baseline_samples = 0
+        self.last_error_code = ""
+        self.last_error_message = ""
 

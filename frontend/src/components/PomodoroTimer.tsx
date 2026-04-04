@@ -68,7 +68,7 @@ export function PomodoroTimer({
     pauseTimer,
     resumeTimer,
     useWebsocket: true,
-    debug: true, // Chuyển sang false trong production
+    debug: false,
   });
 
   // ========================================================================
