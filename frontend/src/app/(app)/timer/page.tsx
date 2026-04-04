@@ -601,21 +601,25 @@ export default function TimerPage() {
           );
           setMonitoringStatus(status);
 
-          // Trigger fresh personal-profile calibration before countdown starts.
           setStartupCalibrationMessage(
             "Đang lấy profile cá nhân trong 10 giây trước khi bắt đầu phiên học...",
           );
+          setPendingStart({ session, block });
+
+          // Trigger fresh personal-profile calibration in background.
+          // Do not block UI/session bootstrap on calibration request latency.
           if (!recalibrateCalledRef.current) {
             recalibrateCalledRef.current = true;
-            await apiFetch<{
+            void apiFetch<{
               accepted: boolean;
               message: string;
               start_error?: string | null;
             }>("/api/v1/monitoring/recalibrate-profile", {
               method: "POST",
+            }).catch(() => {
+              // Ignore recalibration request failures; session can continue.
             });
           }
-          setPendingStart({ session, block });
         } catch (monitoringError: unknown) {
           setMonitoringStatus(null);
           setStep("idle");

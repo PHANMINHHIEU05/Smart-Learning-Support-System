@@ -61,6 +61,13 @@ if np is None:
 
 logger = logging.getLogger("app.browser_detect")
 
+# Face distance thresholds:
+# - ratio-based catches relative move-toward-camera after baseline
+# - raw IPD fallback catches users who start already too close
+FACE_TOO_CLOSE_RATIO_THRESHOLD = 1.25
+FACE_TOO_FAR_RATIO_THRESHOLD = 0.72
+FACE_TOO_CLOSE_RAW_IPD_THRESHOLD = 0.16
+
 
 class BrowserDetectService:
     """phân tích frame upload tu browser va tra JSON metrics """
@@ -77,6 +84,7 @@ class BrowserDetectService:
         self._last_debug_log_at = 0.0
         self._ipd_history = []
         self._IPD_WINDOW = 5
+        self._pending_recalibration = False
 
     def start(self) -> None:
         if self._start:
@@ -150,6 +158,15 @@ class BrowserDetectService:
         if self._ai_thread is None:
             return self._build_not_ready_payload(t0)
 
+        if self._pending_recalibration:
+            try:
+                requester = getattr(self._ai_thread, "request_recalibration", None)
+                if callable(requester):
+                    requester(clear_saved_profile=True)
+                self._pending_recalibration = False
+            except Exception as exc:
+                logger.warning("detect.recalibrate_deferred_failed error=%s", exc, exc_info=True)
+
         t_decode0 = time.perf_counter()
         frame = self._decode_jpeg(frame_bytes)
         decode_ms = (time.perf_counter() - t_decode0) * 1000.0
@@ -193,8 +210,18 @@ class BrowserDetectService:
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
 
-        is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 1.35)
-        is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < 0.72)
+        raw_face_ipd = None
+        if isinstance(posture_details, dict):
+            try:
+                raw_face_ipd = float(posture_details.get("face_distance_raw_ipd"))
+            except (TypeError, ValueError):
+                raw_face_ipd = None
+
+        is_too_close = bool(
+            (smoothed_ipd is not None and smoothed_ipd > FACE_TOO_CLOSE_RATIO_THRESHOLD)
+            or (raw_face_ipd is not None and raw_face_ipd > FACE_TOO_CLOSE_RAW_IPD_THRESHOLD)
+        )
+        is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < FACE_TOO_FAR_RATIO_THRESHOLD)
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
@@ -246,7 +273,7 @@ class BrowserDetectService:
         if now_mono - self._last_debug_log_at >= 1.0:
             self._last_debug_log_at = now_mono
             logger.info(
-                "detect.debug calls=%s ready=%s detect_ms=%.2f detect_ms_int=%s decode_ms=%.2f queue_put_ms=%.2f queue_size=%s dropped_old=%s ai_fps=%.1f latest_age_ms=%s event=%s flags={drowsy:%s,posture:%s,distracted:%s,phone:%s,close:%s,far:%s} metrics={ear_avg:%.3f,posture_score:%.1f,bad_counter:%s,neck_score:%s,head_pitch:%s,calibrating:%s} modules={face:%s,pose:%s,blend:%s} start_error=%s",
+                "detect.debug calls=%s ready=%s detect_ms=%.2f detect_ms_int=%s decode_ms=%.2f queue_put_ms=%.2f queue_size=%s dropped_old=%s ai_fps=%.1f latest_age_ms=%s event=%s flags={drowsy:%s,posture:%s,distracted:%s,phone:%s,close:%s,far:%s} metrics={ear_avg:%.3f,posture_score:%.1f,bad_counter:%s,neck_score:%s,head_pitch:%s,ipd_ratio:%s,ipd_raw:%s,calibrating:%s} modules={face:%s,pose:%s,blend:%s} start_error=%s",
                 self._analyze_calls,
                 self._last_result is not None,
                 detect_ms_precise,
@@ -269,6 +296,8 @@ class BrowserDetectService:
                 posture_details.get("bad_counter", "none"),
                 posture_details.get("neck_score", "none"),
                 posture_details.get("head_pitch", "none"),
+                f"{smoothed_ipd:.3f}" if smoothed_ipd is not None else "none",
+                f"{raw_face_ipd:.3f}" if raw_face_ipd is not None else "none",
                 is_calibrating,
                 bool(data.get("face_landmarks")),
                 bool(data.get("posture_details")),
@@ -299,11 +328,12 @@ class BrowserDetectService:
 
     def request_recalibration(self) -> dict[str, Any]:
         """Request resetting personal profile and starting calibration."""
-        self.start()
         if self._ai_thread is None:
+            # Queue recalibration and apply it once the AI thread is alive.
+            self._pending_recalibration = True
             return {
-                "ok": False,
-                "message": "AI runtime not started",
+                "ok": True,
+                "message": "Calibration queued",
                 "start_error": self._start_error,
             }
 
@@ -323,11 +353,10 @@ class BrowserDetectService:
         }
 
     def get_calibration_status(self) -> dict[str, Any]:
-        self.start()
         if self._ai_thread is None:
             return {
                 "ready": False,
-                "is_calibrating": False,
+                "is_calibrating": bool(self._pending_recalibration),
                 "calibration_progress": 0.0,
                 "profile_ready": False,
                 "start_error": self._start_error,
