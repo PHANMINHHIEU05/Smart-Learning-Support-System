@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.session_block import SessionBlock
 from app.models.study_session import StudySession
+from app.models.task import Task
 from app.schemas.study_session import SessionCreate, SessionEnd
 from app.services.daily_analytics_service import record_session_started
 
@@ -84,6 +85,17 @@ async def end_session(
     session.end_reason = data.end_reason
     if data.notes is not None:
         session.notes = data.notes
+
+    # Auto-mark task as "done" if this session has an associated task
+    if session.task_id:
+        stmt = select(Task).where(
+            Task.task_id == session.task_id,
+            Task.user_id == user_id,
+        )
+        result = await db.execute(stmt)
+        task = result.scalar_one_or_none()
+        if task is not None:
+            task.status = "done"
 
     await db.flush()
     return session

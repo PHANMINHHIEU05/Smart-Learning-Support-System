@@ -303,21 +303,49 @@ export default function TasksPage() {
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="field-label">Estimated Minutes</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={formData.estimated_minutes ?? ""}
-                    onChange={(e) =>
-                      setFormData((f) => ({
-                        ...f,
-                        estimated_minutes: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      }))
-                    }
-                    className="field-input"
-                  />
+                  <label className="field-label">⏱️ Estimated Time</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={480}
+                      value={formData.estimated_minutes ?? ""}
+                      onChange={(e) =>
+                        setFormData((f) => ({
+                          ...f,
+                          estimated_minutes: e.target.value
+                            ? Number(e.target.value)
+                            : undefined,
+                        }))
+                      }
+                      placeholder="30, 60, 120..."
+                      className="field-input flex-1"
+                    />
+                    <span className="flex items-center text-xs text-slate-500 font-medium">
+                      min
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[15, 30, 45, 60, 90, 120].map((mins) => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() =>
+                          setFormData((f) => ({
+                            ...f,
+                            estimated_minutes: mins,
+                          }))
+                        }
+                        className={`rounded px-2 py-1 text-xs font-medium transition ${
+                          formData.estimated_minutes === mins
+                            ? "bg-cyan-500 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        {mins}m
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="field-label">Due Date</label>

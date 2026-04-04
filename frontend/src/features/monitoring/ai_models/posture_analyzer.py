@@ -94,6 +94,13 @@ class PostureAnalyzer:
         self.face_baseline_duration_sec = 5.0
         self.last_face_distance_raw = 0.15
         self.last_face_distance_ratio = 1.0
+        self._pitch_baseline = None
+        self._pitch_baseline_count = 0
+        self._activity = "screen"
+        self._writing_frames = 0
+        self._screen_frames = 0
+        self._WRITING_CONFIRM = 5
+        self._SCREEN_CONFIRM = 8
 
     @staticmethod
     def calculate_angle(p1, p2, p3) -> float:
@@ -197,9 +204,19 @@ class PostureAnalyzer:
         if lower == 0:
             return 0.0
 
-        ratio_pitch = (upper / lower - 1.0) * 35.0
+        raw_pitch = (upper / lower - 1.0) * 35.0
 
-        return ratio_pitch
+        if self._pitch_baseline is None:
+            self._pitch_baseline = raw_pitch
+            self._pitch_baseline_count = 1
+        elif self._pitch_baseline_count < 30:
+            self._pitch_baseline = (
+                self._pitch_baseline * self._pitch_baseline_count + raw_pitch
+            ) / (self._pitch_baseline_count + 1)
+            self._pitch_baseline_count += 1
+
+        relative_pitch = raw_pitch - (self._pitch_baseline or 0.0)
+        return relative_pitch
 
     def calculate_head_roll(self, face_landmarks) -> float:
         """Tính góc nghiêng đầu từ Face Mesh
@@ -315,6 +332,27 @@ class PostureAnalyzer:
         total = neck_points + head_tilt_points + pitch_points + shoulder_points + roll_points
         return min(100.0, max(0.0, total))
 
+    def _detect_activity(self, head_pitch, head_tilt,
+                         neck_score, head_yaw) -> str:
+        is_writing_posture = (
+            head_pitch > 15
+            and abs(head_yaw) < 20
+            and neck_score < 70
+        )
+        if is_writing_posture:
+            self._writing_frames += 1
+            self._screen_frames = 0
+        else:
+            self._screen_frames += 1
+            self._writing_frames = 0
+
+        if self._writing_frames >= self._WRITING_CONFIRM:
+            self._activity = "writing"
+        elif self._screen_frames >= self._SCREEN_CONFIRM:
+            self._activity = "screen"
+
+        return self._activity
+
     def process(self, pose_landmarks, face_landmarks=None) -> Tuple[float, float, float, bool]:
         """Xử lý và trả về kết quả phân tích tư thế
         
@@ -373,26 +411,36 @@ class PostureAnalyzer:
             head_tilt, shoulder_angle, neck_score, head_pitch, head_roll
         )
 
+        activity = self._detect_activity(
+            head_pitch, head_tilt, neck_score,
+            getattr(self, 'last_head_yaw', 0.0)
+        )
+
         if not face_available:
-            self.bad_posture_counter = max(0, self.bad_posture_counter - 2)
-            if self.bad_posture_counter == 0:
-                self.is_bad_posture = False
             return head_tilt, shoulder_angle, posture_score, self.is_bad_posture
         
         # 4. Tracking bad posture
-        is_bad = (
-            posture_score < 55
-            or head_tilt > 20.0
-            or abs(head_pitch) > 28
-            or abs(head_roll) > 20
-            or (neck_score < 40 and relative_slouch)
-        )
+        if activity == "writing":
+            is_bad = (
+                posture_score < 35
+                or head_tilt > 25.0
+                or abs(head_pitch) > 50
+                or abs(head_roll) > 25
+            )
+        else:
+            is_bad = (
+                posture_score < 55
+                or head_tilt > 20.0
+                or abs(head_pitch) > 28
+                or abs(head_roll) > 20
+                or (neck_score < 40 and relative_slouch)
+            )
         
         if is_bad:
             self.bad_posture_counter += 1
         else:
             # Hồi phục nhanh khi tư thế tốt
-            self.bad_posture_counter = max(0, self.bad_posture_counter - 2)
+            self.bad_posture_counter = max(0, self.bad_posture_counter - 1)
             if self.bad_posture_counter == 0:
                 self.is_bad_posture = False
             
@@ -455,7 +503,10 @@ class PostureAnalyzer:
             'face_distance_ratio': round(self.last_face_distance_ratio, 3),
             'face_distance_baseline': round(self.face_distance_baseline, 4) if self.face_distance_baseline is not None else None,
             'is_bad_posture': self.is_bad_posture,
-            'bad_counter': self.bad_posture_counter
+            'bad_counter': self.bad_posture_counter,
+            'activity': self._activity,
+            'writing_frames': self._writing_frames,
+            'screen_frames': self._screen_frames,
         }
 
     def reset(self):
@@ -472,4 +523,9 @@ class PostureAnalyzer:
         self.face_baseline_start_time = None
         self.last_face_distance_raw = 0.15
         self.last_face_distance_ratio = 1.0
+        self._pitch_baseline = None
+        self._pitch_baseline_count = 0
+        self._activity = "screen"
+        self._writing_frames = 0
+        self._screen_frames = 0
 

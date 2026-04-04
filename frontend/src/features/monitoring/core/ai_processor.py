@@ -46,6 +46,10 @@ class AIProcessorThread(threading.Thread):
         self.calibrator = None
         self.user_profile = None
         self.auto_calibrating = False
+        self.enable_phone_detection = bool(getattr(perf, "ENABLE_PHONE_DETECTION", False))
+        self.phone_check_interval = max(1, int(getattr(perf, "PHONE_CHECK_INTERVAL", 5) or 1))
+        self.phone_detector = None
+        self.last_phone_result = (False, 0.0, [])
         
         self.current_emotion = 'neutral'
         self.emotion_confidence = 0.0
@@ -159,6 +163,22 @@ class AIProcessorThread(threading.Thread):
             self.focus_calculator = FocusCalculator()
             self.calibrator = Calibrator(duration=10.0)
             self.user_profile = UserProfile.load_from_file(_USER_PROFILE_PATH)
+
+            # Optional phone detector (YOLO). If it fails, keep pipeline running.
+            if self.enable_phone_detection:
+                try:
+                    from ai_models.phone_detector import PhoneDetector
+
+                    self.phone_detector = PhoneDetector(
+                        model_name=getattr(perf, "PHONE_DETECTOR_MODEL", "yolo11n.pt"),
+                        confidence_threshold=float(getattr(perf, "PHONE_DETECTION_CONFIDENCE", 0.35)),
+                        phone_frames=int(getattr(perf, "PHONE_DETECTION_FRAMES", 3)),
+                    )
+                    print("✅ Phone detector enabled")
+                except Exception as exc:
+                    self.phone_detector = None
+                    self.enable_phone_detection = False
+                    print(f"⚠️ Phone detector unavailable, skip phone detection: {exc}")
 
             if self.user_profile is None or not self.user_profile.is_calibrated:
                 self.auto_calibrating = True
@@ -352,6 +372,14 @@ class AIProcessorThread(threading.Thread):
                 # During calibration we avoid posture alerts to reduce false positives.
                 is_bad_posture = False
 
+            # Phone detection for backend browser pipeline.
+            if self.enable_phone_detection and self.phone_detector is not None:
+                if self.processing_frame_count % self.phone_check_interval == 0:
+                    self.last_phone_result = self.phone_detector.process(frame)
+                is_using_phone, phone_confidence, _phone_detections = self.last_phone_result
+            else:
+                is_using_phone, phone_confidence, _phone_detections = False, 0.0, []
+
             focus_score = self.focus_calculator.calculate_focus_score(
                 ear_avg=ear_avg,
                 posture_score=posture_score,
@@ -375,6 +403,8 @@ class AIProcessorThread(threading.Thread):
                 'focus_score': focus_score,
                 'is_drowsy': is_drowsy,
                 'is_bad_posture': is_bad_posture,
+                'is_using_phone': is_using_phone,
+                'phone_confidence': round(float(phone_confidence), 2),
                 'is_calibrating': calibration_state['is_calibrating'],
                 'calibration_progress': calibration_state['calibration_progress'],
                 'profile_ready': calibration_state['profile_ready'],

@@ -193,14 +193,8 @@ class BrowserDetectService:
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
 
-        # New analyzer emits normalized IPD ratio (~1.0 baseline).
-        # Keep backward-compatible fallback for legacy raw IPD values (~0.1-0.25).
-        if smoothed_ipd is not None and smoothed_ipd > 0.35:
-            is_too_close = bool(smoothed_ipd > 1.30)
-        else:
-            is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 0.17)
-        # User request: disable "too far from screen" warning.
-        is_too_far = False
+        is_too_close = bool(smoothed_ipd is not None and smoothed_ipd > 1.35)
+        is_too_far = bool(smoothed_ipd is not None and smoothed_ipd < 0.72)
         ear_avg = float(data.get("ear_avg", 0.0) or 0.0)
         posture_score = float(data.get("posture_score", 0.0) or 0.0)
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
@@ -209,10 +203,10 @@ class BrowserDetectService:
 
         if is_drowsy:
             derived_event = "drowsiness"
-        elif is_too_close:
-            derived_event = "face_too_close"
         elif is_using_phone:
             derived_event = "phone_detected"
+        elif is_too_close:
+            derived_event = "face_too_close"
         elif is_bad_posture:
             derived_event = "bad_posture"
         elif is_distracted:

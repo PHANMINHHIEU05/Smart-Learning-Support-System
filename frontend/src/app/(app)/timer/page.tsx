@@ -490,7 +490,11 @@ export default function TimerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timer.status]);
 
-  const focusSec = (settings?.pomodoro_focus_minutes ?? 25) * 60;
+  // Get selected task's estimated time if available, otherwise use global settings
+  const selectedTask = tasks.find((t) => t.task_id === selectedTaskId);
+  const focusSec = selectedTask?.estimated_minutes
+    ? selectedTask.estimated_minutes * 60
+    : (settings?.pomodoro_focus_minutes ?? 25) * 60;
   const breakSec = (settings?.pomodoro_break_minutes ?? 5) * 60;
   const longBreakSec = (settings?.pomodoro_long_break_minutes ?? 15) * 60;
   const cyclesBeforeLong = settings?.pomodoro_cycles_before_long_break ?? 4;
