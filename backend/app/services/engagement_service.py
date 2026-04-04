@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -32,6 +32,12 @@ _WHITE_NOISE_PRESETS: list[WhiteNoisePreset] = [
         description="Mid-frequency ambience style texture.",
     ),
 ]
+
+
+def _date_bounds(target_date: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
+    end = start + timedelta(days=1)
+    return start, end
 
 
 def _compute_level(points: int) -> tuple[int, int, int]:
@@ -65,6 +71,7 @@ async def _get_distraction_events_for_date(
     target_date: date,
 ) -> list[PenaltyEvent]:
     """Get all distraction events for a user on a specific date"""
+    start_ts, end_ts = _date_bounds(target_date)
     query = text(
         f"""
         SELECT 
@@ -73,13 +80,17 @@ async def _get_distraction_events_for_date(
             start_at::text AS event_time
         FROM ai_events
         WHERE user_id = :user_id
-          AND start_at::date = :target_date
-          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
+          AND start_at >= :start_ts
+          AND start_at < :end_ts
+                    AND event_type IN ({_PENALTY_EVENTS_SQL})
         ORDER BY start_at DESC
         """
     )
     
-    result = await db.execute(query, {"user_id": str(user_id), "target_date": target_date.isoformat()})
+    result = await db.execute(
+        query,
+        {"user_id": str(user_id), "start_ts": start_ts, "end_ts": end_ts},
+    )
     rows = result.mappings().all()
 
     return _build_deduped_penalty_events(rows)
@@ -101,7 +112,7 @@ async def _get_distraction_events_all_time(
             start_at::text AS event_time
         FROM ai_events
         WHERE user_id = :user_id
-          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
+                    AND event_type IN ({_PENALTY_EVENTS_SQL})
         ORDER BY start_at DESC
         """
     )
@@ -148,14 +159,9 @@ async def get_engagement_summary(
 ) -> EngagementSummary:
     query = text(
         """
-        SELECT
-            COALESCE(COUNT(*) FILTER (
-                WHERE sb.block_type = 'focus'
-                  AND (sb.end_at IS NOT NULL OR ss.ended_at IS NOT NULL)
-            ), 0)::int AS completed_focus_blocks
-        FROM study_sessions ss
-        JOIN session_blocks sb ON sb.session_id = ss.session_id
-        WHERE ss.user_id = :user_id
+        SELECT COALESCE(SUM(completed_focus_blocks), 0)::int AS completed_focus_blocks
+        FROM daily_analytics
+        WHERE user_id = :user_id
         """
     )
 
@@ -197,6 +203,8 @@ async def get_penalty_history(
     date_to: date,
 ) -> PenaltyHistoryResponse:
     """Get penalty event history for a user within a date range"""
+    start_ts = datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+    end_ts = datetime.combine(date_to, time.min, tzinfo=timezone.utc) + timedelta(days=1)
     query = text(
         f"""
         SELECT 
@@ -205,9 +213,9 @@ async def get_penalty_history(
             start_at::text AS event_time
         FROM ai_events
         WHERE user_id = :user_id
-          AND start_at::date >= :date_from
-          AND start_at::date <= :date_to
-          AND LOWER(event_type) IN ({_PENALTY_EVENTS_SQL})
+          AND start_at >= :start_ts
+          AND start_at < :end_ts
+                    AND event_type IN ({_PENALTY_EVENTS_SQL})
         ORDER BY start_at DESC
         """
     )
@@ -216,8 +224,8 @@ async def get_penalty_history(
         query,
         {
             "user_id": str(user_id),
-            "date_from": date_from,
-            "date_to": date_to,
+            "start_ts": start_ts,
+            "end_ts": end_ts,
         },
     )
     rows = result.mappings().all()

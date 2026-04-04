@@ -24,6 +24,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [session, loading, router]);
 
+  useEffect(() => {
+    if (!session) return;
+    for (const item of NAV_ITEMS) {
+      router.prefetch(item.href);
+    }
+  }, [session, router]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
@@ -63,6 +70,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <Link
                     key={href}
                     href={href}
+                    prefetch
+                    onMouseEnter={() => router.prefetch(href)}
+                    onFocus={() => router.prefetch(href)}
                     className={`group flex min-w-max items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold lg:min-w-0 ${
                       active
                         ? "bg-gradient-to-r from-cyan-500 to-sky-600 text-white shadow-lg shadow-cyan-600/30"

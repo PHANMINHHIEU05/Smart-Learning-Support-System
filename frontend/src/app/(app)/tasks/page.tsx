@@ -1,117 +1,132 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { apiFetch } from '@/lib/api-client'
-import type { Task, TaskCreate, TaskStatus, TaskUpdate } from '@/types/api'
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/api-client";
+import type { Task, TaskCreate, TaskStatus, TaskUpdate } from "@/types/api";
 
-const STATUS_TABS: TaskStatus[] = ['todo', 'doing', 'done', 'archived']
+const STATUS_TABS: TaskStatus[] = ["todo", "doing", "done", "archived"];
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
-  todo: 'bg-slate-100 text-slate-700',
-  doing: 'bg-cyan-100 text-cyan-800',
-  done: 'bg-emerald-100 text-emerald-800',
-  archived: 'bg-amber-100 text-amber-800',
-}
+  todo: "bg-slate-100 text-slate-700",
+  doing: "bg-cyan-100 text-cyan-800",
+  done: "bg-emerald-100 text-emerald-800",
+  archived: "bg-amber-100 text-amber-800",
+};
 
 const PRIORITY_LABELS: Record<number, string> = {
-  1: 'Very Low',
-  2: 'Low',
-  3: 'Normal',
-  4: 'High',
-  5: 'Urgent',
-}
+  1: "Very Low",
+  2: "Low",
+  3: "Normal",
+  4: "High",
+  5: "Urgent",
+};
 
 const EMPTY_FORM: TaskCreate = {
-  title: '',
-  description: '',
+  title: "",
+  description: "",
   priority: 3,
-  subject_name: '',
+  subject_name: "",
   estimated_minutes: undefined,
   due_at: undefined,
-}
+};
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [activeTab, setActiveTab] = useState<TaskStatus>('todo')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [activeTab, setActiveTab] = useState<TaskStatus>("todo");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [showModal, setShowModal] = useState(false)
-  const [formData, setFormData] = useState<TaskCreate>(EMPTY_FORM)
-  const [saving, setSaving] = useState(false)
+  const [showModal, setShowModal] = useState(false);
+  const [formData, setFormData] = useState<TaskCreate>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
 
   const fetchTasks = (status: TaskStatus) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     apiFetch<Task[]>(`/api/v1/tasks/?status=${status}&limit=50`)
       .then(setTasks)
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    fetchTasks(activeTab)
-  }, [activeTab])
+    router.prefetch("/timer");
+  }, [router]);
+
+  useEffect(() => {
+    fetchTasks(activeTab);
+  }, [activeTab]);
 
   const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
+    e.preventDefault();
+    setSaving(true);
     try {
       const payload: TaskCreate = {
         title: formData.title,
         ...(formData.description ? { description: formData.description } : {}),
         priority: formData.priority,
-        ...(formData.subject_name ? { subject_name: formData.subject_name } : {}),
-        ...(formData.estimated_minutes ? { estimated_minutes: formData.estimated_minutes } : {}),
-        ...(formData.due_at ? { due_at: new Date(formData.due_at).toISOString() } : {}),
-      }
-      await apiFetch<Task>('/api/v1/tasks/', {
-        method: 'POST',
+        ...(formData.subject_name
+          ? { subject_name: formData.subject_name }
+          : {}),
+        ...(formData.estimated_minutes
+          ? { estimated_minutes: formData.estimated_minutes }
+          : {}),
+        ...(formData.due_at
+          ? { due_at: new Date(formData.due_at).toISOString() }
+          : {}),
+      };
+      await apiFetch<Task>("/api/v1/tasks/", {
+        method: "POST",
         body: JSON.stringify(payload),
-      })
-      setShowModal(false)
-      setFormData(EMPTY_FORM)
-      fetchTasks(activeTab)
+      });
+      setShowModal(false);
+      setFormData(EMPTY_FORM);
+      fetchTasks(activeTab);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to create task')
+      setError(e instanceof Error ? e.message : "Failed to create task");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const handleStatusChange = async (task: Task, newStatus: TaskStatus) => {
     try {
       await apiFetch<Task>(`/api/v1/tasks/${task.task_id}`, {
-        method: 'PATCH',
+        method: "PATCH",
         body: JSON.stringify({ status: newStatus } satisfies TaskUpdate),
-      })
-      fetchTasks(activeTab)
+      });
+      fetchTasks(activeTab);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to update task')
+      setError(e instanceof Error ? e.message : "Failed to update task");
     }
-  }
+  };
 
   const handleDelete = async (task: Task) => {
-    if (!confirm(`Delete "${task.title}"?`)) return
+    if (!confirm(`Delete "${task.title}"?`)) return;
     try {
-      await apiFetch(`/api/v1/tasks/${task.task_id}`, { method: 'DELETE' })
-      setTasks((prev) => prev.filter((t) => t.task_id !== task.task_id))
+      await apiFetch(`/api/v1/tasks/${task.task_id}`, { method: "DELETE" });
+      setTasks((prev) => prev.filter((t) => t.task_id !== task.task_id));
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to delete task')
+      setError(e instanceof Error ? e.message : "Failed to delete task");
     }
-  }
+  };
 
   return (
     <div className="app-page">
       <div className="page-header">
         <div>
           <h1 className="page-title">Tasks</h1>
-          <p className="page-subtitle">Manage priorities and keep focus goals visible.</p>
+          <p className="page-subtitle">
+            Manage priorities and keep focus goals visible.
+          </p>
         </div>
         <button
           onClick={() => {
-            setFormData(EMPTY_FORM)
-            setShowModal(true)
+            setFormData(EMPTY_FORM);
+            setShowModal(true);
           }}
           className="btn-primary"
         >
@@ -133,8 +148,8 @@ export default function TasksPage() {
               onClick={() => setActiveTab(status)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] ${
                 activeTab === status
-                  ? 'border-cyan-500 bg-cyan-600 text-white shadow-md shadow-cyan-600/25'
-                  : 'border-slate-200 bg-white/80 text-slate-600 hover:border-cyan-300 hover:text-cyan-700'
+                  ? "border-cyan-500 bg-cyan-600 text-white shadow-md shadow-cyan-600/25"
+                  : "border-slate-200 bg-white/80 text-slate-600 hover:border-cyan-300 hover:text-cyan-700"
               }`}
             >
               {status}
@@ -155,13 +170,18 @@ export default function TasksPage() {
               >
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{task.title}</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {task.title}
+                    </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {task.subject_name && (
-                        <span className="text-xs text-slate-500">{task.subject_name}</span>
+                        <span className="text-xs text-slate-500">
+                          {task.subject_name}
+                        </span>
                       )}
                       <span className="text-xs text-slate-500">
-                        P{task.priority} - {PRIORITY_LABELS[task.priority] ?? ''}
+                        P{task.priority} -{" "}
+                        {PRIORITY_LABELS[task.priority] ?? ""}
                       </span>
                       {task.due_at && (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
@@ -173,11 +193,17 @@ export default function TasksPage() {
 
                   <select
                     value={task.status}
-                    onChange={(e) => handleStatusChange(task, e.target.value as TaskStatus)}
+                    onChange={(e) =>
+                      handleStatusChange(task, e.target.value as TaskStatus)
+                    }
                     className={`rounded-full border-0 px-2 py-1 text-xs font-semibold ${STATUS_COLORS[task.status]}`}
                   >
                     {STATUS_TABS.map((status) => (
-                      <option key={status} value={status} className="bg-white text-slate-800">
+                      <option
+                        key={status}
+                        value={status}
+                        className="bg-white text-slate-800"
+                      >
                         {status}
                       </option>
                     ))}
@@ -190,6 +216,15 @@ export default function TasksPage() {
                   >
                     Delete
                   </button>
+                  <Link
+                    href={`/timer?taskId=${task.task_id}`}
+                    prefetch
+                    onMouseEnter={() => router.prefetch("/timer")}
+                    onFocus={() => router.prefetch("/timer")}
+                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-100"
+                  >
+                    Hoc ngay
+                  </Link>
                 </div>
               </div>
             ))}
@@ -214,7 +249,9 @@ export default function TasksPage() {
                   type="text"
                   required
                   value={formData.title}
-                  onChange={(e) => setFormData((f) => ({ ...f, title: e.target.value }))}
+                  onChange={(e) =>
+                    setFormData((f) => ({ ...f, title: e.target.value }))
+                  }
                   className="field-input"
                 />
               </div>
@@ -222,7 +259,9 @@ export default function TasksPage() {
                 <label className="field-label">Description</label>
                 <textarea
                   value={formData.description}
-                  onChange={(e) => setFormData((f) => ({ ...f, description: e.target.value }))}
+                  onChange={(e) =>
+                    setFormData((f) => ({ ...f, description: e.target.value }))
+                  }
                   className="field-textarea"
                   rows={3}
                 />
@@ -233,7 +272,12 @@ export default function TasksPage() {
                   <input
                     type="text"
                     value={formData.subject_name}
-                    onChange={(e) => setFormData((f) => ({ ...f, subject_name: e.target.value }))}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        subject_name: e.target.value,
+                      }))
+                    }
                     className="field-input"
                   />
                 </div>
@@ -242,7 +286,10 @@ export default function TasksPage() {
                   <select
                     value={formData.priority}
                     onChange={(e) =>
-                      setFormData((f) => ({ ...f, priority: Number(e.target.value) }))
+                      setFormData((f) => ({
+                        ...f,
+                        priority: Number(e.target.value),
+                      }))
                     }
                     className="field-select"
                   >
@@ -260,11 +307,13 @@ export default function TasksPage() {
                   <input
                     type="number"
                     min={1}
-                    value={formData.estimated_minutes ?? ''}
+                    value={formData.estimated_minutes ?? ""}
                     onChange={(e) =>
                       setFormData((f) => ({
                         ...f,
-                        estimated_minutes: e.target.value ? Number(e.target.value) : undefined,
+                        estimated_minutes: e.target.value
+                          ? Number(e.target.value)
+                          : undefined,
                       }))
                     }
                     className="field-input"
@@ -274,9 +323,12 @@ export default function TasksPage() {
                   <label className="field-label">Due Date</label>
                   <input
                     type="date"
-                    value={formData.due_at ?? ''}
+                    value={formData.due_at ?? ""}
                     onChange={(e) =>
-                      setFormData((f) => ({ ...f, due_at: e.target.value || undefined }))
+                      setFormData((f) => ({
+                        ...f,
+                        due_at: e.target.value || undefined,
+                      }))
                     }
                     className="field-input"
                   />
@@ -291,8 +343,12 @@ export default function TasksPage() {
                 >
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="btn-primary disabled:opacity-60">
-                  {saving ? 'Saving...' : 'Create Task'}
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="btn-primary disabled:opacity-60"
+                >
+                  {saving ? "Saving..." : "Create Task"}
                 </button>
               </div>
             </form>
@@ -300,5 +356,5 @@ export default function TasksPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

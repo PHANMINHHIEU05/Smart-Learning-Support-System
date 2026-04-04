@@ -11,6 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_event import AiEvent
 from app.schemas.ai_event import AiEventBatchCreate, AiEventCreate
+from app.services.daily_analytics_service import (
+    record_event,
+    record_events_batch,
+    record_focus_heatmap_event,
+    record_focus_heatmap_events_batch,
+)
 from app.services.event_taxonomy import (
     normalize_event_type,
     to_intervention_event_type,
@@ -111,6 +117,8 @@ async def create_event(
     )
     db.add(event)
     await db.flush()
+    await record_event(db, user_id, event.event_type, event.start_at)
+    await record_focus_heatmap_event(db, user_id, event.event_type, event.start_at, event.payload_json)
 
     # Trigger alert evaluation (import ở đây để tránh circular import)
     # Isolated: evaluation failure must NOT fail the event save
@@ -147,6 +155,16 @@ async def create_events_batch(
         events.append(event)
 
     await db.flush()
+    await record_events_batch(
+        db,
+        user_id,
+        ((event.event_type, event.start_at) for event in events),
+    )
+    await record_focus_heatmap_events_batch(
+        db,
+        user_id,
+        ((event.event_type, event.start_at, event.payload_json) for event in events),
+    )
 
     # Evaluate rules for each event
     # Isolated: evaluation failure must NOT fail the batch event save

@@ -60,7 +60,14 @@ class MainApplication:
         self.ADVANCED_STATE_INTERVAL = perf.ADVANCED_STATE_INTERVAL  # Dùng config
         self.enable_advanced_states = perf.ENABLE_ADVANCED_STATES
         self.enable_microsleep = perf.ENABLE_MICROSLEEP
-        self.phone_detector = PhoneDetector() if self.enable_phone_detection else None
+        self.phone_detector = (
+            PhoneDetector(
+                model_name=perf.PHONE_DETECTOR_MODEL,
+                confidence_threshold=perf.PHONE_DETECTION_CONFIDENCE,
+                phone_frames=perf.PHONE_DETECTION_FRAMES,
+            )
+            if self.enable_phone_detection else None
+        )
         self.last_phone_result = (False, 0.0, [])
         self.last_advanced_states = {
             'is_bored': False,

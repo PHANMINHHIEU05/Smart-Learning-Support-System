@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.session_block import SessionBlock
 from app.models.study_session import StudySession
 from app.schemas.session_block import BlockCreate
+from app.services.daily_analytics_service import record_block_closed
 
 
 async def _verify_session_ownership(
@@ -66,6 +67,39 @@ async def create_block(
     db.add(block)
     await db.flush()
     return block
+
+
+async def close_latest_block(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    session_id: uuid.UUID,
+    ended_at: datetime,
+) -> SessionBlock | None:
+    await _verify_session_ownership(db, user_id, session_id)
+
+    stmt = (
+        select(SessionBlock)
+        .where(SessionBlock.session_id == session_id)
+        .order_by(SessionBlock.start_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    last_block = result.scalar_one_or_none()
+    if last_block is None:
+        return None
+
+    if ended_at < last_block.start_at:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="ended_at phải >= start_at của block hiện tại",
+        )
+
+    if last_block.end_at is None:
+        last_block.end_at = ended_at
+        await record_block_closed(db, user_id, last_block.block_type, last_block.start_at, ended_at)
+        await db.flush()
+
+    return last_block
 
 
 async def list_blocks_by_session(

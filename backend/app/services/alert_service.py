@@ -193,10 +193,27 @@ async def evaluate_rules_for_event(
     stmt = select(AlertRule).where(
         AlertRule.user_id == user_id,
         AlertRule.is_enabled == True,  # noqa: E712
-        func.lower(AlertRule.trigger_event_type).in_(event_type_candidates),
+        AlertRule.trigger_event_type.in_(event_type_candidates),
     )
     result = await db.execute(stmt)
     rules = result.scalars().all()
+    if not rules:
+        return
+
+    rule_ids = [rule.rule_id for rule in rules]
+    cooldown_stmt = (
+        select(Alert.rule_id, func.max(Alert.fired_at))
+        .where(
+            Alert.user_id == user_id,
+            Alert.rule_id.in_(rule_ids),
+        )
+        .group_by(Alert.rule_id)
+    )
+    cooldown_result = await db.execute(cooldown_stmt)
+    last_fired_by_rule = {
+        rule_id: fired_at
+        for rule_id, fired_at in cooldown_result.all()
+    }
 
     now = datetime.now(timezone.utc)
 
@@ -207,7 +224,7 @@ async def evaluate_rules_for_event(
             continue
 
         # 2b. Check cooldown
-        if not await _check_cooldown(db, user_id, rule, now):
+        if not _check_cooldown(rule, now, last_fired_by_rule.get(rule.rule_id)):
             logger.debug("Rule %s: đang trong cooldown", rule.rule_id)
             continue
 
@@ -259,22 +276,13 @@ def _check_condition(rule: AlertRule, event: AiEvent) -> bool:
     return True
 
 
-async def _check_cooldown(
-    db: AsyncSession, user_id: uuid.UUID, rule: AlertRule, now: datetime
-) -> bool:
+def _check_cooldown(rule: AlertRule, now: datetime, last_fired: datetime | None) -> bool:
     """
     Kiểm tra đã qua cooldown chưa.
     Return True nếu OK (đã qua cooldown hoặc chưa có alert nào).
     """
     if rule.cooldown_seconds <= 0:
         return True
-
-    stmt = select(func.max(Alert.fired_at)).where(
-        Alert.user_id == user_id,
-        Alert.rule_id == rule.rule_id,
-    )
-    result = await db.execute(stmt)
-    last_fired = result.scalar_one_or_none()
 
     if last_fired is None:
         return True  # chưa có alert nào → OK

@@ -1,92 +1,126 @@
+import cv2
+import numpy as np
 from typing import List, Tuple, Optional, Dict
 from ultralytics import YOLO
-import numpy as np
-
-CELL_PHONE_CLASS_ID = 67  # cell phone
-PERSON_CLASS_ID = 0       # person (optional)
-
+import torch
 
 class PhoneDetector:
     def __init__(self,
-                 model_name: str = 'yolov8n.pt',
-                 confidence_threshold: float = 0.35,
-                 phone_frames: int = 3):
+                 model_name: str = 'yolo11n.pt',
+                 confidence_threshold: float = 0.40,
+                 phone_frames: int = 5):
+        """
+        Lớp nhận diện điện thoại tối ưu cho YOLO11 Nano.
+        Args:
+            model_name: Tên model (sẽ tự tải yolo11n.pt nếu chưa có).
+            confidence_threshold: Độ tin cậy tối thiểu (0.40 là mức cân bằng tốt).
+            phone_frames: Số khung hình liên tục để kích hoạt trạng thái 'Đang dùng điện thoại'.
+        """
+        # 1. Load Model
         self.model = YOLO(model_name)
-        self.confidence_threshold = confidence_threshold
+        
+        # 2. Tối ưu hóa phần cứng (Sử dụng GPU nếu có CUDA, không thì dùng CPU)
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model.to(self.device)
+        
+        # 3. Fuse layers để tăng tốc độ inference (chỉ làm 1 lần lúc init)
+        self.model.fuse()
+        
+        # 4. Cấu hình logic
+        self.conf_threshold = confidence_threshold
         self.phone_frames = phone_frames
         self.phone_counter = 0
         self.is_using_phone = False
-        self.phone_bbox = None
-        self.last_frame_height = 480
-        self.debug = False  # Set True để debug
         
-        # Optimize: set model to inference mode
-        self.model.fuse()  # Fuse layers for faster inference
+        # Class ID của điện thoại trong bộ COCO là 67
+        self.PHONE_CLS_ID = 67 
 
-    def detect(self, frame) -> List[Dict]:
-        self.last_frame_height = frame.shape[0]
-        # Thêm imgsz để resize tự động, tăng tốc inference
-        results = self.model(frame, verbose=False, classes=[CELL_PHONE_CLASS_ID], 
-                            imgsz=320, half=False)  # imgsz nhỏ = nhanh hơn
-        
+    def process(self, frame: np.ndarray) -> Tuple[bool, float, List[Dict]]:
+        """
+        Xử lý khung hình và trả về kết quả.
+        Returns:
+            - is_using_phone (bool): Trạng thái cuối cùng sau khi qua bộ lọc counter.
+            - confidence (float): Độ tin cậy của điện thoại rõ nhất (0-100).
+            - detections (list): Danh sách các bbox để vẽ lên màn hình nếu cần.
+        """
+        # Inference với các tham số tối ưu cho tốc độ
+        # imgsz=320 giúp chạy cực nhanh trên CPU
+        results = self.model.predict(
+            source=frame,
+            conf=self.conf_threshold,
+            classes=[self.PHONE_CLS_ID],
+            imgsz=320,
+            half=(self.device != 'cpu'), # Dùng FP16 nếu chạy GPU
+            verbose=False,
+            stream=False
+        )
+
         detections = []
+        highest_conf = 0.0
+        phone_in_this_frame = False
+
+        # Parse kết quả
         for r in results:
-            for box in r.boxes:
-                cls_id = int(box.cls[0])
-                conf = float(box.conf[0])
-                
-                if conf >= self.confidence_threshold:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            boxes = r.boxes
+            if len(boxes) > 0:
+                phone_in_this_frame = True
+                for i in range(len(boxes)):
+                    conf = float(boxes.conf[i])
+                    highest_conf = max(highest_conf, conf)
                     
+                    # Lấy tọa độ bbox (x1, y1, x2, y2)
+                    xyxy = boxes.xyxy[i].cpu().numpy().astype(int)
                     detections.append({
-                        'class_id': cls_id,
-                        'confidence': conf,
-                        'bbox': (x1, y1, x2, y2),
-                        'center': (cx, cy)
+                        'bbox': tuple(xyxy),
+                        'conf': conf
                     })
-                    
-                    if self.debug:
-                        print(f"📱 Phone detected: conf={conf:.2f}, bbox={x1},{y1},{x2},{y2}")
-        
-        return detections
 
-    def _is_phone_near_face(self) -> bool:
-        """Check if phone is in upper half of frame (near face area)"""
-        if self.phone_bbox is None:
-            return False
-        x1, y1, x2, y2 = self.phone_bbox
-        phone_center_y = (y1 + y2) / 2
-        # Phone ở nửa trên của frame = gần mặt
-        near_face = phone_center_y < self.last_frame_height * 0.7  # Mở rộng vùng từ 0.5 -> 0.7
-        return near_face
-
-    def process(self, frame) -> Tuple[bool, float, Optional[List]]:
-        detections = self.detect(frame)
-        
-        phone_detected = False
-        phone_confidence = 0.0
-        self.phone_bbox = None
-        
-        for det in detections:
-            if det['class_id'] == CELL_PHONE_CLASS_ID:
-                phone_detected = True
-                self.phone_bbox = det['bbox']
-                phone_confidence = det['confidence']
-                break
-        
-        # Nếu phát hiện phone (không cần check near face ban đầu)
-        if phone_detected:
-            self.phone_counter += 2  # Tăng nhanh hơn
-            if self.debug:
-                print(f"📱 Counter: {self.phone_counter}/{self.phone_frames}")
+        # --- LOGIC BỘ LỌC (COUNTER) ---
+        # Giúp tránh báo động giả khi điện thoại chỉ lướt qua
+        if phone_in_this_frame:
+            # Tăng nhanh (+2) để bắt kịp hành động cầm máy
+            self.phone_counter = min(self.phone_frames * 2, self.phone_counter + 2)
         else:
-            self.phone_counter = max(0, self.phone_counter - 1)  # Giảm dần
-        
+            # Giảm chậm (-1) để giữ trạng thái nếu frame bị mờ hoặc rung
+            self.phone_counter = max(0, self.phone_counter - 1)
+
+        # Trạng thái cuối cùng
         self.is_using_phone = self.phone_counter >= self.phone_frames
-        return self.is_using_phone, phone_confidence * 100, detections  # Return % confidence
+
+        return self.is_using_phone, highest_conf * 100, detections
 
     def reset(self):
+        """Reset trạng thái về ban đầu"""
         self.phone_counter = 0
         self.is_using_phone = False
-        self.phone_bbox = None
+
+# --- ĐOẠN CODE TEST NHANH ---
+if __name__ == "__main__":
+    cap = cv2.VideoCapture(0)
+    detector = PhoneDetector()
+    
+    print("🚀 Đang chạy test... Nhấn 'q' để thoát.")
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+        
+        is_phone, conf, dets = detector.process(frame)
+        
+        # Vẽ lên màn hình để kiểm tra
+        color = (0, 0, 255) if is_phone else (0, 255, 0)
+        status_text = f"PHONE: {is_phone} ({conf:.1f}%)"
+        
+        for d in dets:
+            x1, y1, x2, y2 = d['bbox']
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            
+        cv2.putText(frame, status_text, (20, 50), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+        
+        cv2.imshow("YOLO11 Phone Monitor", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+            
+    cap.release()
+    cv2.destroyAllWindows()

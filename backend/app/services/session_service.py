@@ -7,8 +7,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.session_block import SessionBlock
 from app.models.study_session import StudySession
 from app.schemas.study_session import SessionCreate, SessionEnd
+from app.services.daily_analytics_service import record_session_started
 
 
 async def create_session(
@@ -25,6 +27,7 @@ async def create_session(
     )
     db.add(session)
     await db.flush()
+    await record_session_started(db, user_id, data.started_at)
     return session
 
 
@@ -58,6 +61,24 @@ async def end_session(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="ended_at phải >= started_at",
         )
+
+    stmt = (
+        select(SessionBlock)
+        .where(SessionBlock.session_id == session_id)
+        .order_by(SessionBlock.start_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    last_block = result.scalar_one_or_none()
+    if last_block is not None and last_block.end_at is None:
+        if data.ended_at < last_block.start_at:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="ended_at phải >= start_at của block hiện tại",
+            )
+        last_block.end_at = data.ended_at
+        from app.services.daily_analytics_service import record_block_closed
+        await record_block_closed(db, user_id, last_block.block_type, last_block.start_at, data.ended_at)
 
     session.ended_at = data.ended_at
     session.end_reason = data.end_reason

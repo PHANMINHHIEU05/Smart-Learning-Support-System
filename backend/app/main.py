@@ -2,14 +2,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging_config import setup_logging
+from app.db.session import async_session_factory
 from app.db.schema_compat import apply_runtime_schema_compatibility
 from app.db.session import engine
 from app.routers import ai_events, alerts, analytics, blocks, engagement, monitoring, sessions, tasks, user_settings
 from app.routers.monitoring import cleanup_all_monitoring_processes
+from app.services.daily_analytics_service import backfill_daily_analytics, backfill_focus_heatmap_analytics
 
 
 @asynccontextmanager
@@ -17,6 +20,18 @@ async def lifespan(app: FastAPI):
     """Startup & shutdown events."""
     setup_logging()
     await apply_runtime_schema_compatibility(engine)
+    async with async_session_factory() as db:
+        daily_count = int((await db.execute(text("SELECT COUNT(*) FROM daily_analytics"))).scalar_one() or 0)
+        heatmap_count = int((await db.execute(text("SELECT COUNT(*) FROM daily_focus_heatmap"))).scalar_one() or 0)
+        needs_commit = False
+        if daily_count == 0:
+            await backfill_daily_analytics(db)
+            needs_commit = True
+        if heatmap_count == 0:
+            await backfill_focus_heatmap_analytics(db)
+            needs_commit = True
+        if needs_commit:
+            await db.commit()
     yield
     # Shutdown: đóng tất cả connections + dừng các monitoring subprocess
     cleanup_all_monitoring_processes()

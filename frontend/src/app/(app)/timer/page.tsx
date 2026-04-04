@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
 import { BreakOverlay202020 } from "@/components/BreakOverlay202020";
 import type { CameraStreamMetrics } from "@/components/CameraWidget";
@@ -178,6 +179,8 @@ function shouldShowExternalDisplay(mode: string): boolean {
 // ---------------------------------------------------------------------------
 
 export default function TimerPage() {
+  const searchParams = useSearchParams();
+  const queryTaskId = searchParams.get("taskId") ?? "";
   const [step, setStep] = useState<"idle" | "calibrating" | "studying">("idle");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
@@ -242,6 +245,7 @@ export default function TimerPage() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingStartTimeRef = useRef<number | null>(null);
   const recalibrateCalledRef = useRef(false);
+  const queryTaskAppliedRef = useRef(false);
 
   const sameAlertList = (a: AlertResponse[], b: AlertResponse[]) => {
     if (a.length !== b.length) return false;
@@ -457,6 +461,15 @@ export default function TimerPage() {
       .catch((e) => setError(e.message));
   }, []);
 
+  useEffect(() => {
+    if (queryTaskAppliedRef.current || !queryTaskId || tasks.length === 0)
+      return;
+    if (tasks.some((task) => task.task_id === queryTaskId)) {
+      setSelectedTaskId(queryTaskId);
+      queryTaskAppliedRef.current = true;
+    }
+  }, [queryTaskId, tasks]);
+
   // Countdown tick
   useEffect(() => {
     if (timer.status === "running") {
@@ -642,6 +655,12 @@ export default function TimerPage() {
     }
 
     try {
+      await apiFetch(
+        `/api/v1/blocks/session/${timer.session.session_id}/close-latest`,
+        {
+          method: "POST",
+        },
+      );
       const block = await apiFetch<SessionBlock>("/api/v1/blocks/", {
         method: "POST",
         body: JSON.stringify({
@@ -666,6 +685,12 @@ export default function TimerPage() {
   const handleStop = async () => {
     if (!timer.session) return;
     try {
+      await apiFetch(
+        `/api/v1/blocks/session/${timer.session.session_id}/close-latest`,
+        {
+          method: "POST",
+        },
+      );
       await apiFetch(`/api/v1/sessions/${timer.session.session_id}/end`, {
         method: "PATCH",
         body: JSON.stringify({
