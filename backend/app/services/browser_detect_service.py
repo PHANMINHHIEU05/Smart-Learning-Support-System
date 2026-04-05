@@ -209,10 +209,17 @@ class BrowserDetectService:
         is_bad_posture = bool(data.get("is_bad_posture", False))
         is_distracted = bool(data.get("is_distracted", False))
         is_using_phone = bool(data.get("is_using_phone", False))
+        posture_error_code = data.get("posture_error_code")
+        if posture_error_code is not None:
+            posture_error_code = str(posture_error_code).strip() or None
         posture_error_message = data.get("posture_error_message")
         if posture_error_message is not None:
             posture_error_message = str(posture_error_message).strip() or None
         posture_details = data.get("posture_details") if isinstance(data.get("posture_details"), dict) else {}
+
+        if posture_error_code is None and isinstance(posture_details, dict):
+            code = posture_details.get("error_code")
+            posture_error_code = str(code).strip() if code else None
 
         raw_face_ipd = None
         if isinstance(posture_details, dict):
@@ -255,12 +262,15 @@ class BrowserDetectService:
         if is_drowsy:
             labels.append({"text": "Warning: drowsy detected", "x": 18, "y": 52, "severity": "critical"})
         if is_bad_posture:
+            posture_severity = (
+                "critical" if posture_error_code == "ERR_MISSING" else "medium"
+            )
             labels.append(
                 {
                     "text": posture_error_message or "Warning: bad posture",
                     "x": 18,
                     "y": 74,
-                    "severity": "medium",
+                    "severity": posture_severity,
                 }
             )
         if is_too_close:
@@ -321,6 +331,7 @@ class BrowserDetectService:
             "calibration_progress": round(max(0.0, min(100.0, calibration_progress)), 1),
             "focus_score": round(focus_score, 2),
             "confidence": round(max(0.0, min(1.0, focus_score / 100.0)), 3),
+            "posture_error_code": posture_error_code,
             "posture_error_message": posture_error_message,
             "state_flags": {
                 "is_drowsy": is_drowsy,

@@ -94,12 +94,59 @@ async def close_latest_block(
             detail="ended_at phải >= start_at của block hiện tại",
         )
 
-    if last_block.end_at is None:
-        last_block.end_at = ended_at
-        await record_block_closed(db, user_id, last_block.block_type, last_block.start_at, ended_at)
-        await db.flush()
+    previous_end_at = last_block.end_at
+    if previous_end_at is None:
+        delta_start = last_block.start_at
+    else:
+        if ended_at <= previous_end_at:
+            return last_block
+        delta_start = previous_end_at
+
+    last_block.end_at = ended_at
+    await record_block_closed(db, user_id, last_block.block_type, delta_start, ended_at)
+    await db.flush()
 
     return last_block
+
+
+async def heartbeat_block(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    block_id: uuid.UUID,
+    ended_at: datetime,
+) -> SessionBlock:
+    stmt = (
+        select(SessionBlock)
+        .join(StudySession, SessionBlock.session_id == StudySession.session_id)
+        .where(
+            SessionBlock.block_id == block_id,
+            StudySession.user_id == user_id,
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    block = result.scalar_one_or_none()
+    if block is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Block not found")
+
+    if ended_at < block.start_at:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="ended_at phải >= start_at của block hiện tại",
+        )
+
+    previous_end_at = block.end_at
+    if previous_end_at is None:
+        delta_start = block.start_at
+    else:
+        if ended_at <= previous_end_at:
+            return block
+        delta_start = previous_end_at
+
+    block.end_at = ended_at
+    await record_block_closed(db, user_id, block.block_type, delta_start, ended_at)
+    await db.flush()
+    return block
 
 
 async def list_blocks_by_session(

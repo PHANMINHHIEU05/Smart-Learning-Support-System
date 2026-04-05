@@ -61,6 +61,10 @@ class BrowserDetectResponse(BaseModel):
     derived_event: str | None = Field(
         default=None, description="Derived AI event type (drowsiness, phone_detected, etc.)"
     )
+    posture_error_code: str | None = Field(
+        default=None,
+        description="Posture analyzer error code (ERR_SLUMP, ERR_LEANING, ERR_MISSING)"
+    )
     posture_error_message: str | None = Field(
         default=None,
         description="User-friendly posture warning text from AI posture analyzer"

@@ -107,9 +107,11 @@ class PostureAnalyzer:
         self._baseline_samples = 0
         self._BASELINE_SAMPLES_REQUIRED = 30
         self._BASELINE_DEVIATION_RATIO = 0.30
-        self._MISSING_TIMEOUT_SEC = 3.0
+        self._MISSING_TIMEOUT_SEC = 5.0
         self.last_error_code = ""
         self.last_error_message = ""
+        self.last_posture_score = 100.0
+        self.last_ear_avg = 0.0
 
     @staticmethod
     def calculate_angle(p1, p2, p3) -> float:
@@ -219,10 +221,13 @@ class PostureAnalyzer:
             self._pitch_baseline = raw_pitch
             self._pitch_baseline_count = 1
         elif self._pitch_baseline_count < 30:
-            self._pitch_baseline = (
-                self._pitch_baseline * self._pitch_baseline_count + raw_pitch
-            ) / (self._pitch_baseline_count + 1)
-            self._pitch_baseline_count += 1
+            deviation = abs(raw_pitch - self._pitch_baseline)
+            if deviation < 15:
+                self._pitch_baseline = (
+                    self._pitch_baseline * self._pitch_baseline_count + raw_pitch
+                ) / (self._pitch_baseline_count + 1)
+                self._pitch_baseline_count += 1
+            # Nếu deviation >= 15: bỏ qua frame này
 
         relative_pitch = raw_pitch - (self._pitch_baseline or 0.0)
         return relative_pitch
@@ -341,13 +346,22 @@ class PostureAnalyzer:
         total = neck_points + head_tilt_points + pitch_points + shoulder_points + roll_points
         return min(100.0, max(0.0, total))
 
-    def _detect_activity(self, head_pitch, shoulder_angle, head_yaw) -> str:
-        # Writing thường có pitch cao nhưng vai vẫn ổn định.
-        is_writing_posture = (
-            head_pitch > 12
-            and shoulder_angle < 8
-            and abs(head_yaw) < 25
-        )
+    def _detect_activity(self, head_pitch, shoulder_angle,
+                       head_yaw, neck_drop=0.0,
+                       face_available=True) -> str:
+
+        if face_available:
+            is_writing_posture = (
+                head_pitch > 12
+                and shoulder_angle < 10
+                and abs(head_yaw) < 30
+            )
+        else:
+            is_writing_posture = (
+                neck_drop > 0.03
+                and shoulder_angle < 10
+            )
+
         if is_writing_posture:
             self._writing_frames += 1
             self._screen_frames = 0
@@ -373,23 +387,29 @@ class PostureAnalyzer:
             (head_tilt, shoulder_angle, posture_score, is_bad_posture, error_message)
         """
         now = time.time()
-        if pose_landmarks is None or face_landmarks is None:
+        # Block 1: chỉ check pose_landmarks
+        if pose_landmarks is None:
             if self._missing_started_at is None:
                 self._missing_started_at = now
-
-            missing_duration = now - self._missing_started_at
-            if missing_duration >= self._MISSING_TIMEOUT_SEC:
+            if now - self._missing_started_at >= self._MISSING_TIMEOUT_SEC:
                 self.last_error_code = "ERR_MISSING"
                 self.last_error_message = "Không phát hiện người dùng, vui lòng quay lại trước webcam"
                 self.is_bad_posture = True
+                self.bad_posture_counter = self.posture_frames
+                self.last_posture_score = 0.0
                 return 0.0, 0.0, 0.0, True, self.last_error_message
 
-            self.last_error_code = ""
-            self.last_error_message = ""
-            self.is_bad_posture = False
+            self.bad_posture_counter = max(0, self.bad_posture_counter - 1)
+            if self.bad_posture_counter == 0:
+                self.is_bad_posture = False
+                self.last_error_code = ""
+                self.last_error_message = ""
+            self.last_posture_score = 100.0
             return 0.0, 0.0, 100.0, False, ""
 
+        # Block 2: reset missing timer khi có pose
         self._missing_started_at = None
+        face_available = face_landmarks is not None
             
         landmarks = pose_landmarks.landmark
         
@@ -399,28 +419,37 @@ class PostureAnalyzer:
         neck_score = self.calculate_neck_posture(landmarks)
         
         # 2. Từ Face Mesh
-        head_pitch = self.calculate_head_pitch(face_landmarks)
-        head_roll = self.calculate_head_roll(face_landmarks)
+        if face_available:
+            head_pitch = self.calculate_head_pitch(face_landmarks)
+            head_roll = self.calculate_head_roll(face_landmarks)
+            head_yaw = self.calculate_head_yaw(face_landmarks)
+        else:
+            head_pitch = 0.0
+            head_roll = 0.0
+            head_yaw = 0.0
 
         # 2.5. Tính head_yaw
-        head_yaw = self.calculate_head_yaw(face_landmarks)
         self.last_head_yaw = head_yaw
 
         # 2.6. Calibration baseline đầu phiên
-        stable_pose = shoulder_angle < 10 and abs(head_roll) < 12 and abs(head_yaw) < 25
+        stable_pose = shoulder_angle < 10 and (
+            not face_available or (abs(head_roll) < 12 and abs(head_yaw) < 25)
+        )
         if stable_pose and self._baseline_samples < self._BASELINE_SAMPLES_REQUIRED:
             if self._baseline_neck_distance is None:
                 self._baseline_neck_distance = self.last_vertical_distance
-                self._baseline_pitch = head_pitch
+                if face_available:
+                    self._baseline_pitch = head_pitch
             else:
                 alpha = 0.1
                 self._baseline_neck_distance = (
                     (1 - alpha) * self._baseline_neck_distance + alpha * self.last_vertical_distance
                 )
-                self._baseline_pitch = (
-                    (1 - alpha) * (self._baseline_pitch if self._baseline_pitch is not None else head_pitch)
-                    + alpha * head_pitch
-                )
+                if face_available:
+                    self._baseline_pitch = (
+                        (1 - alpha) * (self._baseline_pitch if self._baseline_pitch is not None else head_pitch)
+                        + alpha * head_pitch
+                    )
             self._baseline_samples += 1
 
         self.neck_baseline_distance = self._baseline_neck_distance
@@ -439,24 +468,27 @@ class PostureAnalyzer:
         posture_score = self.calculate_posture_score(
             head_tilt, shoulder_angle, neck_score, head_pitch, head_roll
         )
+        self.last_posture_score = posture_score
 
         activity = self._detect_activity(
             head_pitch,
             shoulder_angle,
             self.last_head_yaw,
+            neck_drop=self.last_neck_drop,
+            face_available=face_available,
         )
 
         # 4. Core error detection theo rule mới
-        error_code = ""
+        current_frame_err = ""
         error_message = ""
 
         # ERR_LEANING: nghiêng đầu/nghiêng vai
         if abs(head_roll) > 15 or shoulder_angle > 10:
-            error_code = "ERR_LEANING"
+            current_frame_err = "ERR_LEANING"
             error_message = "Vui lòng ngồi thẳng đầu và cân bằng vai"
 
         # ERR_SLUMP: chỉ bắt khi đang screen, bỏ qua writing
-        if not error_code and activity == "screen" and self._baseline_neck_distance is not None:
+        if not current_frame_err and activity == "screen" and self._baseline_neck_distance is not None:
             neck_drop_ratio = 0.0
             if self._baseline_neck_distance > 1e-6:
                 neck_drop_ratio = (
@@ -484,39 +516,39 @@ class PostureAnalyzer:
 
             slump_by_neck = neck_drop_ratio > self._BASELINE_DEVIATION_RATIO
             slump_by_ear = ear_shoulder_ratio < 0.52
-            if slump_by_neck or slump_by_ear:
-                error_code = "ERR_SLUMP"
+            is_definite_slump = ear_shoulder_ratio < 0.42
+            is_likely_slump = slump_by_neck and slump_by_ear
+            if is_definite_slump or is_likely_slump:
+                current_frame_err = "ERR_SLUMP"
                 error_message = "Bạn đang cúi quá thấp, hãy nâng cổ và ngồi thẳng"
 
         # Pitch deviation guard theo baseline (30%) để giảm nhiễu.
         if (
-            error_code == "ERR_SLUMP"
+            current_frame_err == "ERR_SLUMP"
             and self._baseline_pitch is not None
             and activity == "screen"
         ):
             pitch_delta = abs(head_pitch - self._baseline_pitch)
             pitch_threshold = max(abs(self._baseline_pitch) * self._BASELINE_DEVIATION_RATIO, 8.0)
             if pitch_delta < pitch_threshold:
-                error_code = ""
+                current_frame_err = ""
                 error_message = ""
 
-        is_bad = bool(error_code)
-        
-        if is_bad:
+        if current_frame_err:
             self.bad_posture_counter += 1
+            if self.bad_posture_counter >= self.posture_frames:
+                self.is_bad_posture = True
+                self.last_error_code = current_frame_err
+                self.last_error_message = error_message
         else:
-            # Hồi phục nhanh khi tư thế tốt
             self.bad_posture_counter = max(0, self.bad_posture_counter - 1)
             if self.bad_posture_counter == 0:
                 self.is_bad_posture = False
-            
-        if self.bad_posture_counter >= self.posture_frames:
-            self.is_bad_posture = True
+                self.last_error_code = ""
+                self.last_error_message = ""
 
-        self.last_error_code = error_code
-        self.last_error_message = error_message
-            
-        return head_tilt, shoulder_angle, posture_score, self.is_bad_posture, error_message
+        confirmed_message = self.last_error_message if self.is_bad_posture else ""
+        return head_tilt, shoulder_angle, posture_score, self.is_bad_posture, confirmed_message
 
     def calculate_face_distance(self, face_landmarks) -> float:
         """Ước tính khoảng cách mặt-camera qua IPD tương đối theo baseline
@@ -559,10 +591,12 @@ class PostureAnalyzer:
         self.last_face_distance_ratio = ratio
         return ratio
 
-    def get_posture_details(self) -> dict:
+    def get_metrics(self) -> dict:
         """Trả về chi tiết các metrics tư thế"""
         return {
             'neck_score': round(self.last_neck_score, 1),
+            'posture_score': round(self.last_posture_score, 2),
+            'ear_avg': round(self.last_ear_avg, 3),
             'head_pitch': round(self.last_head_pitch, 1),
             'head_roll': round(self.last_head_roll, 1),
             'head_yaw': round(getattr(self, 'last_head_yaw', 0.0), 1),
@@ -578,9 +612,14 @@ class PostureAnalyzer:
             'screen_frames': self._screen_frames,
             'error_code': self.last_error_code,
             'error_message': self.last_error_message,
+            'confirmed_error': self.last_error_code if self.is_bad_posture else "",
             'baseline_pitch': round(self._baseline_pitch, 2) if self._baseline_pitch is not None else None,
             'baseline_samples': self._baseline_samples,
         }
+
+    def get_posture_details(self) -> dict:
+        """Backward-compatible alias"""
+        return self.get_metrics()
 
     def reset(self):
         self.bad_posture_counter = 0
@@ -607,4 +646,6 @@ class PostureAnalyzer:
         self._baseline_samples = 0
         self.last_error_code = ""
         self.last_error_message = ""
+        self.last_posture_score = 100.0
+        self.last_ear_avg = 0.0
 

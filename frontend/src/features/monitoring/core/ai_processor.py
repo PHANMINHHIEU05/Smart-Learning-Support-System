@@ -369,6 +369,8 @@ class AIProcessorThread(threading.Thread):
                 # During calibration we avoid posture alerts to reduce false positives.
                 is_bad_posture = False
                 posture_error_message = ""
+                posture_details["error_code"] = ""
+                posture_details["error_message"] = ""
 
             # Phone detection for backend browser pipeline.
             if self.enable_phone_detection and self.phone_detector is not None:
@@ -396,6 +398,7 @@ class AIProcessorThread(threading.Thread):
                 'posture_score': round(posture_score, 2),
                 'face_distance_ipd': round(face_distance_ipd, 3),
                 'posture_details': posture_details,
+                'posture_error_code': str(posture_details.get('error_code', '') or ''),
                 'posture_error_message': posture_error_message,
                 'emotion': self.current_emotion,
                 'emotion_confidence': round(self.emotion_confidence, 2),

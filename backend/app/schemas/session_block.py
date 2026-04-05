@@ -21,3 +21,7 @@ class BlockResponse(BaseModel):
     end_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+
+class BlockHeartbeat(BaseModel):
+    ended_at: datetime | None = None

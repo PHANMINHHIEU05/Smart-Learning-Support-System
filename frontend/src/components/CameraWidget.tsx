@@ -20,6 +20,10 @@ interface CameraWidgetProps {
   className?: string;
   onMetrics?: (metrics: CameraStreamMetrics) => void;
   onCalibrationComplete?: () => void;
+  onPostureStateChange?: (posture: {
+    code: string | null;
+    message: string | null;
+  }) => void;
 }
 
 export function CameraWidget({
@@ -27,6 +31,7 @@ export function CameraWidget({
   className,
   onMetrics,
   onCalibrationComplete,
+  onPostureStateChange,
 }: CameraWidgetProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -50,6 +55,19 @@ export function CameraWidget({
     return "Live";
   }, [latest]);
 
+  const postureToneClass = useMemo(() => {
+    switch (latest?.posture_error_code) {
+      case "ERR_MISSING":
+        return "bg-rose-500/90 text-white";
+      case "ERR_SLUMP":
+        return "bg-amber-500/90 text-slate-950";
+      case "ERR_LEANING":
+        return "bg-sky-500/90 text-white";
+      default:
+        return "bg-amber-500/90 text-slate-950";
+    }
+  }, [latest?.posture_error_code]);
+
   useEffect(() => {
     let active = true;
 
@@ -62,6 +80,7 @@ export function CameraWidget({
         streamRef.current.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
       }
+      onPostureStateChange?.({ code: null, message: null });
       prevCalibratingRef.current = null;
       detectBusyRef.current = false;
       frameSeqRef.current = 0;
@@ -183,6 +202,10 @@ export function CameraWidget({
           ) {
             onCalibrationComplete?.();
           }
+          onPostureStateChange?.({
+            code: detected.posture_error_code ?? null,
+            message: detected.posture_error_message ?? null,
+          });
           prevCalibratingRef.current = isCalibrating;
           drawOverlay(detected);
           publishMetrics(detected);
@@ -237,7 +260,7 @@ export function CameraWidget({
       active = false;
       clearResources();
     };
-  }, [onCalibrationComplete, onMetrics, sessionId]);
+  }, [onCalibrationComplete, onMetrics, onPostureStateChange, sessionId]);
 
   return (
     <div
@@ -277,7 +300,9 @@ export function CameraWidget({
       ) : null}
 
       {!error && latest?.posture_error_message ? (
-        <div className="absolute bottom-2 left-2 right-2 rounded bg-amber-500/90 px-2 py-1 text-xs text-slate-950">
+        <div
+          className={`absolute bottom-2 left-2 right-2 rounded px-2 py-1 text-xs ${postureToneClass}`}
+        >
           {latest.posture_error_message}
         </div>
       ) : null}

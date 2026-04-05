@@ -754,6 +754,7 @@ def _default_detect_metrics() -> dict[str, Any]:
         "calibration_progress": 0.0,
         "focus_score": 0.0,
         "confidence": 0.0,
+        "posture_error_code": None,
         "posture_error_message": None,
         "state_flags": {
             "is_drowsy": False,
@@ -915,6 +916,11 @@ async def detect_from_browser_frame(
             server_ai_fps=float(metrics.get("server_ai_fps", 0.0) or 0.0),
         ),
         derived_event=str(derived_event) if derived_event else None,
+        posture_error_code=(
+            str(metrics.get("posture_error_code"))
+            if metrics.get("posture_error_code")
+            else None
+        ),
         posture_error_message=(
             str(metrics.get("posture_error_message"))
             if metrics.get("posture_error_message")

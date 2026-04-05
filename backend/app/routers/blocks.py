@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_user
 from app.db.session import get_db
-from app.schemas.session_block import BlockCreate, BlockResponse
+from app.schemas.session_block import BlockCreate, BlockHeartbeat, BlockResponse
 from app.services import block_service
 
 router = APIRouter(prefix="/api/v1/blocks", tags=["Session Blocks"])
@@ -40,3 +40,14 @@ async def list_blocks(
     user_id: uuid.UUID = Depends(get_current_user),
 ):
     return await block_service.list_blocks_by_session(db, user_id, session_id)
+
+
+@router.patch("/{block_id}/heartbeat", response_model=BlockResponse)
+async def heartbeat_block(
+    block_id: uuid.UUID,
+    data: BlockHeartbeat,
+    db: AsyncSession = Depends(get_db),
+    user_id: uuid.UUID = Depends(get_current_user),
+):
+    ended_at = data.ended_at or datetime.now(timezone.utc)
+    return await block_service.heartbeat_block(db, user_id, block_id, ended_at)

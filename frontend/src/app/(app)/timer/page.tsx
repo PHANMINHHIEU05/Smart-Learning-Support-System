@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
@@ -94,7 +101,7 @@ function timerReducer(state: TimerState, action: TimerAction): TimerState {
         ...state,
         status: "running",
         secondsLeft: action.seconds,
-        blockType: "focus",
+        blockType: action.block.block_type,
         cycleCount: 0,
         session: action.session,
         currentBlock: action.block,
@@ -169,6 +176,9 @@ const ERGONOMIC_REMINDER_COOLDOWN_MS = 60000;
 const ERGONOMIC_ACTIVE_WINDOW_MS = 30000;
 const EYE_REST_CADENCE_SEC = 20 * 60;
 const EYE_REST_OVERLAY_SEC = 20;
+const SESSION_STORAGE_KEY = "active_study_session_id";
+const BLOCK_STORAGE_KEY = "active_study_block_id";
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 function normalizeMonitoringMode(mode: string | null | undefined): string {
   if (mode === "alerts_only") return "alerts_only";
@@ -226,6 +236,10 @@ export default function TimerPage() {
   // WebSocket stream metrics (single source of truth for monitoring panel UI)
   const [streamMetrics, setStreamMetrics] =
     useState<CameraStreamMetrics | null>(null);
+  const [postureState, setPostureState] = useState<{
+    code: string | null;
+    message: string | null;
+  }>({ code: null, message: null });
   const pythonFps = streamMetrics?.pythonMainFps ?? null;
   const pythonCameraFps = streamMetrics?.pythonCameraFps ?? null;
   const pythonAiFps = streamMetrics?.pythonAiFps ?? null;
@@ -251,9 +265,26 @@ export default function TimerPage() {
   } | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resumeAttemptedRef = useRef(false);
   const pendingStartTimeRef = useRef<number | null>(null);
   const recalibrateCalledRef = useRef(false);
   const queryTaskAppliedRef = useRef(false);
+
+  const persistActiveSession = useCallback(
+    (sessionId: string, blockId: string) => {
+      if (typeof window === "undefined") return;
+      localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+      localStorage.setItem(BLOCK_STORAGE_KEY, blockId);
+    },
+    [],
+  );
+
+  const clearPersistedSession = useCallback(() => {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(BLOCK_STORAGE_KEY);
+  }, []);
 
   const sameAlertList = (a: AlertResponse[], b: AlertResponse[]) => {
     if (a.length !== b.length) return false;
@@ -361,6 +392,42 @@ export default function TimerPage() {
   const handleCameraMetrics = useCallback((metrics: CameraStreamMetrics) => {
     setStreamMetrics(metrics);
   }, []);
+
+  const handlePostureStateChange = useCallback(
+    (posture: { code: string | null; message: string | null }) => {
+      setPostureState(posture);
+    },
+    [],
+  );
+
+  const posturePanelTone = useMemo(() => {
+    switch (postureState.code) {
+      case "ERR_MISSING":
+        return {
+          box: "border-rose-300 bg-rose-50",
+          text: "text-rose-800",
+          badge: "bg-rose-100 text-rose-800",
+        };
+      case "ERR_SLUMP":
+        return {
+          box: "border-amber-300 bg-amber-50",
+          text: "text-amber-800",
+          badge: "bg-amber-100 text-amber-800",
+        };
+      case "ERR_LEANING":
+        return {
+          box: "border-sky-300 bg-sky-50",
+          text: "text-sky-800",
+          badge: "bg-sky-100 text-sky-800",
+        };
+      default:
+        return {
+          box: "border-slate-200 bg-slate-50",
+          text: "text-slate-700",
+          badge: "bg-slate-100 text-slate-700",
+        };
+    }
+  }, [postureState.code]);
 
   // Derived: unacked critical alerts
   const normalizedStatus = normalizeMonitoringStatus(monitoringStatus);
@@ -473,6 +540,111 @@ export default function TimerPage() {
     }
   }, [queryTaskId, tasks]);
 
+  useEffect(() => {
+    if (resumeAttemptedRef.current || !settings) return;
+    resumeAttemptedRef.current = true;
+    if (typeof window === "undefined") return;
+
+    const savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+    const savedBlockId = localStorage.getItem(BLOCK_STORAGE_KEY);
+    if (!savedSessionId || !savedBlockId) return;
+
+    const resumeSession = async () => {
+      try {
+        const session = await apiFetch<StudySession>(
+          `/api/v1/sessions/${savedSessionId}`,
+        );
+        if (session.ended_at) {
+          clearPersistedSession();
+          return;
+        }
+
+        const blocks = await apiFetch<SessionBlock[]>(
+          `/api/v1/blocks/session/${session.session_id}`,
+        );
+        if (blocks.length === 0) {
+          clearPersistedSession();
+          return;
+        }
+
+        const latestBlock = blocks.reduce((latest, item) => {
+          if (!latest) return item;
+          return new Date(item.started_at).getTime() >
+            new Date(latest.started_at).getTime()
+            ? item
+            : latest;
+        }, blocks[0]);
+
+        const latestEndMs = blocks.reduce((maxTs, item) => {
+          if (!item.ended_at) return maxTs;
+          return Math.max(maxTs, new Date(item.ended_at).getTime());
+        }, 0);
+
+        const startedAtMs = new Date(session.started_at).getTime();
+        const progressedMs = latestEndMs > 0 ? latestEndMs : Date.now();
+        const elapsedSec = Math.max(
+          0,
+          Math.floor((progressedMs - startedAtMs) / 1000),
+        );
+        const restoredSeconds = Math.max(
+          0,
+          latestBlock.planned_duration_seconds - elapsedSec,
+        );
+
+        setStep("studying");
+        dispatch({
+          type: "START",
+          session,
+          block: latestBlock,
+          seconds: restoredSeconds,
+        });
+        persistActiveSession(session.session_id, latestBlock.block_id);
+
+        if (session.task_id) {
+          setSelectedTaskId(session.task_id);
+          queryTaskAppliedRef.current = true;
+        }
+      } catch {
+        clearPersistedSession();
+      }
+    };
+
+    void resumeSession();
+  }, [clearPersistedSession, persistActiveSession, settings]);
+
+  useEffect(() => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+
+    const blockId = timer.currentBlock?.block_id;
+    if (!timer.session || !blockId || timer.status === "idle") return;
+
+    const sendHeartbeat = async () => {
+      try {
+        await apiFetch<SessionBlock>(`/api/v1/blocks/${blockId}/heartbeat`, {
+          method: "PATCH",
+          body: JSON.stringify({ ended_at: new Date().toISOString() }),
+        });
+      } catch {
+        // Keep learning flow uninterrupted on transient network/backend errors.
+      }
+    };
+
+    void sendHeartbeat();
+    heartbeatRef.current = setInterval(() => {
+      void sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+    };
+  }, [timer.currentBlock?.block_id, timer.session, timer.status]);
+
   // Countdown tick
   useEffect(() => {
     if (timer.status === "running") {
@@ -583,6 +755,7 @@ export default function TimerPage() {
           planned_duration_seconds: focusSec,
         } satisfies BlockCreate),
       });
+      persistActiveSession(session.session_id, block.block_id);
 
       // Bật giám sát AI nếu được bật trong settings
       if (settings.ai_monitoring_enabled !== false) {
@@ -636,6 +809,7 @@ export default function TimerPage() {
         dispatch({ type: "START", session, block, seconds: focusSec });
       }
     } catch (e: unknown) {
+      clearPersistedSession();
       setStep("idle");
       setError(e instanceof Error ? e.message : "Failed to start session");
     } finally {
@@ -679,6 +853,7 @@ export default function TimerPage() {
           planned_duration_seconds: nextSec,
         } satisfies BlockCreate),
       });
+      persistActiveSession(timer.session.session_id, block.block_id);
       dispatch({
         type: "NEXT_BLOCK",
         block,
@@ -717,7 +892,9 @@ export default function TimerPage() {
     ) {
       apiFetch("/api/v1/monitoring/stop", { method: "POST" }).catch(() => {});
     }
+    clearPersistedSession();
     setStreamMetrics(null);
+    setPostureState({ code: null, message: null });
     setMonitoringStatus(null);
     setRecentAlerts([]);
     setPendingStart(null);
@@ -1271,6 +1448,28 @@ export default function TimerPage() {
             </div>
           )}
 
+          {settings?.ai_monitoring_enabled !== false && (
+            <div
+              className={`rounded-xl border px-4 py-3 space-y-2 ${posturePanelTone.box}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={`text-sm font-semibold ${posturePanelTone.text}`}
+                >
+                  Posture status
+                </span>
+                <span
+                  className={`rounded px-2 py-1 text-[11px] font-semibold ${posturePanelTone.badge}`}
+                >
+                  {postureState.code ?? "OK"}
+                </span>
+              </div>
+              <p className={`text-sm ${posturePanelTone.text}`}>
+                {postureState.message ?? "Tư thế ổn định."}
+              </p>
+            </div>
+          )}
+
           {/* ── Main timer card ── */}
           <div className="surface-card surface-card-strong p-6 text-center space-y-4">
             <p
@@ -1413,6 +1612,7 @@ export default function TimerPage() {
                     sessionId={activeSessionId}
                     className="w-full min-h-[140px] border border-slate-200/80"
                     onMetrics={handleCameraMetrics}
+                    onPostureStateChange={handlePostureStateChange}
                   />
                 ) : (
                   <div className="rounded-xl border border-slate-200 bg-white/70 px-3 py-3 text-xs text-slate-600">
