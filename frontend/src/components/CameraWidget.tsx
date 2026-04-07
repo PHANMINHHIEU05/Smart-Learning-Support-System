@@ -56,7 +56,7 @@ export function CameraWidget({
   }, [latest]);
 
   const postureToneClass = useMemo(() => {
-    switch (latest?.posture_error_code) {
+    switch (latest?.posture_error_code ?? latest?.posture_current_error_code) {
       case "ERR_MISSING":
         return "bg-rose-500/90 text-white";
       case "ERR_SLUMP":
@@ -66,7 +66,7 @@ export function CameraWidget({
       default:
         return "bg-amber-500/90 text-slate-950";
     }
-  }, [latest?.posture_error_code]);
+  }, [latest?.posture_error_code, latest?.posture_current_error_code]);
 
   useEffect(() => {
     let active = true;
@@ -203,8 +203,14 @@ export function CameraWidget({
             onCalibrationComplete?.();
           }
           onPostureStateChange?.({
-            code: detected.posture_error_code ?? null,
-            message: detected.posture_error_message ?? null,
+            code:
+              detected.posture_current_error_code ??
+              detected.posture_error_code ??
+              null,
+            message:
+              detected.posture_current_error_message ??
+              detected.posture_error_message ??
+              null,
           });
           prevCalibratingRef.current = isCalibrating;
           drawOverlay(detected);
@@ -299,11 +305,13 @@ export function CameraWidget({
         </div>
       ) : null}
 
-      {!error && latest?.posture_error_message ? (
+      {!error &&
+      (latest?.posture_current_error_message ||
+        latest?.posture_error_message) ? (
         <div
           className={`absolute bottom-2 left-2 right-2 rounded px-2 py-1 text-xs ${postureToneClass}`}
         >
-          {latest.posture_error_message}
+          {latest.posture_current_error_message ?? latest.posture_error_message}
         </div>
       ) : null}
     </div>

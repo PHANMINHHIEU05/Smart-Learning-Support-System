@@ -372,6 +372,11 @@ class AIProcessorThread(threading.Thread):
                 posture_details["error_code"] = ""
                 posture_details["error_message"] = ""
 
+            posture_current_error_code = str(posture_details.get("current_error_code", "") or "")
+            posture_current_error_message = str(
+                posture_details.get("current_error_message", "") or ""
+            )
+
             # Phone detection for backend browser pipeline.
             if self.enable_phone_detection and self.phone_detector is not None:
                 if self.processing_frame_count % self.phone_check_interval == 0:
@@ -400,6 +405,8 @@ class AIProcessorThread(threading.Thread):
                 'posture_details': posture_details,
                 'posture_error_code': str(posture_details.get('error_code', '') or ''),
                 'posture_error_message': posture_error_message,
+                'posture_current_error_code': posture_current_error_code,
+                'posture_current_error_message': posture_current_error_message,
                 'emotion': self.current_emotion,
                 'emotion_confidence': round(self.emotion_confidence, 2),
                 'focus_score': focus_score,

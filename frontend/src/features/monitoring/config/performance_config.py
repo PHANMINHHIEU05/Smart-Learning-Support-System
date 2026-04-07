@@ -88,7 +88,7 @@ SHOW_PERFORMANCE_METRICS = False  # Chi tiết timing mỗi component
 # ============ FEATURE FLAGS ============
 # Tắt features không cần thiết để tăng FPS
 ENABLE_PHONE_DETECTION = True
-PHONE_CHECK_INTERVAL = 1
+PHONE_CHECK_INTERVAL = 5
 PHONE_DETECTOR_MODEL = 'yolo11n.pt'
 PHONE_DETECTION_CONFIDENCE = 0.35
 PHONE_DETECTION_FRAMES = 3

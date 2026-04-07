@@ -110,6 +110,8 @@ class PostureAnalyzer:
         self._MISSING_TIMEOUT_SEC = 5.0
         self.last_error_code = ""
         self.last_error_message = ""
+        self.last_current_error_code = ""
+        self.last_current_error_message = ""
         self.last_posture_score = 100.0
         self.last_ear_avg = 0.0
 
@@ -534,6 +536,9 @@ class PostureAnalyzer:
                 current_frame_err = ""
                 error_message = ""
 
+        self.last_current_error_code = current_frame_err
+        self.last_current_error_message = error_message
+
         if current_frame_err:
             self.bad_posture_counter += 1
             if self.bad_posture_counter >= self.posture_frames:
@@ -612,6 +617,8 @@ class PostureAnalyzer:
             'screen_frames': self._screen_frames,
             'error_code': self.last_error_code,
             'error_message': self.last_error_message,
+            'current_error_code': self.last_current_error_code,
+            'current_error_message': self.last_current_error_message,
             'confirmed_error': self.last_error_code if self.is_bad_posture else "",
             'baseline_pitch': round(self._baseline_pitch, 2) if self._baseline_pitch is not None else None,
             'baseline_samples': self._baseline_samples,
@@ -646,6 +653,8 @@ class PostureAnalyzer:
         self._baseline_samples = 0
         self.last_error_code = ""
         self.last_error_message = ""
+        self.last_current_error_code = ""
+        self.last_current_error_message = ""
         self.last_posture_score = 100.0
         self.last_ear_avg = 0.0
 

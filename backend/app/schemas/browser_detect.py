@@ -65,9 +65,17 @@ class BrowserDetectResponse(BaseModel):
         default=None,
         description="Posture analyzer error code (ERR_SLUMP, ERR_LEANING, ERR_MISSING)"
     )
+    posture_current_error_code: str | None = Field(
+        default=None,
+        description="Current frame posture error code before debounce confirmation"
+    )
     posture_error_message: str | None = Field(
         default=None,
         description="User-friendly posture warning text from AI posture analyzer"
+    )
+    posture_current_error_message: str | None = Field(
+        default=None,
+        description="Current frame posture warning text before debounce confirmation"
     )
     is_calibrating: bool = Field(
         default=False,

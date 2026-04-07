@@ -429,6 +429,9 @@ export default function TimerPage() {
     }
   }, [postureState.code]);
 
+  const postureDisplayMessage =
+    postureState.message ?? "Tư thế ổn định.";
+
   // Derived: unacked critical alerts
   const normalizedStatus = normalizeMonitoringStatus(monitoringStatus);
   const criticalEventTypes =
@@ -1465,7 +1468,7 @@ export default function TimerPage() {
                 </span>
               </div>
               <p className={`text-sm ${posturePanelTone.text}`}>
-                {postureState.message ?? "Tư thế ổn định."}
+                  {postureDisplayMessage}
               </p>
             </div>
           )}
