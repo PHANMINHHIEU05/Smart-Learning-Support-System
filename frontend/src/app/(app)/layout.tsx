@@ -24,21 +24,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [session, loading, router]);
 
-  useEffect(() => {
-    if (!session) return;
-    for (const item of NAV_ITEMS) {
-      router.prefetch(item.href);
-    }
-  }, [session, router]);
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="surface-card surface-card-strong w-full max-w-sm p-6 text-center">
-          <p className="text-sm uppercase tracking-[0.18em] text-slate-500">
-            SLSS
-          </p>
-          <p className="mt-2 text-lg font-semibold text-slate-800">
+      <div className="fg-shell min-h-screen flex items-center justify-center px-4">
+        <div className="fg-card w-full max-w-sm p-6 text-center">
+          <p className="text-sm uppercase tracking-[0.18em] fg-subtle">SLSS</p>
+          <p className="mt-2 text-lg font-semibold fg-title-glow">
             Loading workspace...
           </p>
         </div>
@@ -49,16 +40,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (!session) return null;
 
   return (
-    <div className="min-h-screen px-3 pb-6 pt-4 md:px-5 md:pt-6">
+    <div className="fg-shell min-h-screen px-3 pb-6 pt-4 md:px-5 md:pt-6">
       <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 lg:flex-row lg:gap-6">
-        <aside className="surface-card surface-card-strong w-full overflow-hidden lg:sticky lg:top-6 lg:w-72 lg:self-start">
-          <div className="border-b border-slate-200/70 bg-gradient-to-r from-cyan-50 via-sky-50 to-amber-50 p-5">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
+        <aside className="fg-card w-full overflow-hidden lg:sticky lg:top-6 lg:w-72 lg:self-start">
+          <div className="border-b border-indigo-500/40 p-5">
+            <p className="text-xs uppercase tracking-[0.22em] fg-subtle">
               Smart Learning
             </p>
             <div className="mt-2 flex items-center justify-between">
-              <span className="text-2xl font-bold text-slate-900">SLSS</span>
-              <span className="ui-pill">Focus Mode</span>
+              <span className="text-2xl font-bold fg-title-glow">SLSS</span>
+              <span className="fg-chip">Focus Mode</span>
             </div>
           </div>
 
@@ -75,11 +66,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     onFocus={() => router.prefetch(href)}
                     className={`group flex min-w-max items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold lg:min-w-0 ${
                       active
-                        ? "bg-gradient-to-r from-cyan-500 to-sky-600 text-white shadow-lg shadow-cyan-600/30"
-                        : "text-slate-600 hover:bg-white/85 hover:text-slate-900"
+                        ? "bg-cyan-400/25 text-cyan-200"
+                        : "text-slate-300 hover:bg-indigo-500/20 hover:text-cyan-100"
                     }`}
                   >
-                    <span className={active ? "text-white" : "text-cyan-600"}>
+                    <span
+                      className={active ? "text-cyan-100" : "text-cyan-300"}
+                    >
                       {icon}
                     </span>
                     <span>{label}</span>
@@ -89,10 +82,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </nav>
 
-          <div className="border-t border-slate-200/70 bg-white/50 p-4">
-            <p className="truncate text-xs text-slate-500">
-              {session.user.email}
-            </p>
+          <div className="border-t border-indigo-500/40 p-4">
+            <p className="truncate text-xs fg-subtle">{session.user.email}</p>
             <button onClick={signOut} className="btn-danger mt-3 w-full">
               Sign Out
             </button>
@@ -100,7 +91,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </aside>
 
         <main className="min-w-0 flex-1">
-          <div className="surface-card surface-card-muted min-h-[calc(100vh-3rem)] p-4 md:p-6 lg:p-7">
+          <div className="fg-card min-h-[calc(100vh-3rem)] p-4 md:p-6 lg:p-7">
             {children}
           </div>
         </main>

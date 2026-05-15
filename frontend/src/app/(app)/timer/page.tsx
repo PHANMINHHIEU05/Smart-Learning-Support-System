@@ -199,6 +199,7 @@ function shouldShowExternalDisplay(mode: string): boolean {
 export default function TimerPage() {
   const searchParams = useSearchParams();
   const queryTaskId = searchParams.get("taskId") ?? "";
+  const allowAutoResume = searchParams.get("resume") === "1";
   const [step, setStep] = useState<"idle" | "calibrating" | "studying">("idle");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
@@ -266,7 +267,6 @@ export default function TimerPage() {
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const resumeAttemptedRef = useRef(false);
   const pendingStartTimeRef = useRef<number | null>(null);
   const recalibrateCalledRef = useRef(false);
   const queryTaskAppliedRef = useRef(false);
@@ -429,8 +429,7 @@ export default function TimerPage() {
     }
   }, [postureState.code]);
 
-  const postureDisplayMessage =
-    postureState.message ?? "Tư thế ổn định.";
+  const postureDisplayMessage = postureState.message ?? "Tư thế ổn định.";
 
   // Derived: unacked critical alerts
   const normalizedStatus = normalizeMonitoringStatus(monitoringStatus);
@@ -474,6 +473,88 @@ export default function TimerPage() {
     normalizedStatus.activeMode ?? settings?.monitoring_mode,
   );
   const criticalSoundEnabled = settings?.critical_sound_enabled ?? true;
+  const hasActiveSession = Boolean(
+    timer.session?.session_id ?? pendingStart?.session.session_id,
+  );
+  const shouldShowPhoneWarning =
+    isPhoneDetectedLive &&
+    selectedMode !== "alerts_only" &&
+    (normalizedStatus.status === "active" ||
+      normalizedStatus.status === "degraded") &&
+    hasActiveSession;
+
+  const unifiedNotification = useMemo(() => {
+    if (unackedCriticalAlerts.length > 0) {
+      return {
+        tone: "critical" as const,
+        title: `Critical Alert${
+          unackedCriticalAlerts.length > 1
+            ? ` (${unackedCriticalAlerts.length})`
+            : ""
+        }`,
+        message:
+          unackedCriticalAlerts[0].message ?? "High-severity event detected",
+      };
+    }
+
+    if (interventionState?.escalation_level === "paused") {
+      return {
+        tone: "paused" as const,
+        title: "Session Paused",
+        message:
+          `Paused by intervention: ${interventionState.pause_reason ?? "unknown"}.` +
+          (interventionState.resume_countdown_sec !== null
+            ? ` Resume in ${Math.ceil(interventionState.resume_countdown_sec)}s.`
+            : ""),
+      };
+    }
+
+    if (interventionState?.escalation_level === "warning") {
+      return {
+        tone: "warning" as const,
+        title: "Focus Warning",
+        message: "Attention drifting. Stay on task to avoid auto-pause.",
+      };
+    }
+
+    if (shouldShowPhoneWarning) {
+      return {
+        tone: "phone" as const,
+        title: "Phone Detected",
+        message: "Put your phone down to protect focus mode.",
+      };
+    }
+
+    if (
+      settings?.ai_monitoring_enabled !== false &&
+      postureState.code &&
+      postureState.code !== "OK"
+    ) {
+      return {
+        tone: "posture" as const,
+        title: `Posture ${postureState.code}`,
+        message: postureDisplayMessage,
+      };
+    }
+
+    if (ergonomicReminderText) {
+      return {
+        tone: "info" as const,
+        title: "Ergonomic Reminder",
+        message: ergonomicReminderText,
+      };
+    }
+
+    return null;
+  }, [
+    unackedCriticalAlerts,
+    interventionState,
+    shouldShowPhoneWarning,
+    settings?.ai_monitoring_enabled,
+    postureState.code,
+    postureDisplayMessage,
+    ergonomicReminderText,
+  ]);
 
   // Compute FPS status color (Green/Yellow/Red)
   const getStatusColor = (fps: number | null): string => {
@@ -544,8 +625,11 @@ export default function TimerPage() {
   }, [queryTaskId, tasks]);
 
   useEffect(() => {
-    if (resumeAttemptedRef.current || !settings) return;
-    resumeAttemptedRef.current = true;
+    if (!settings) return;
+    if (!allowAutoResume) {
+      clearPersistedSession();
+      return;
+    }
     if (typeof window === "undefined") return;
 
     const savedSessionId = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -613,7 +697,12 @@ export default function TimerPage() {
     };
 
     void resumeSession();
-  }, [clearPersistedSession, persistActiveSession, settings]);
+  }, [
+    allowAutoResume,
+    clearPersistedSession,
+    persistActiveSession,
+    settings,
+  ]);
 
   useEffect(() => {
     if (heartbeatRef.current) {
@@ -1225,17 +1314,17 @@ export default function TimerPage() {
 
   if (pendingStart) {
     return (
-      <div className="app-page mx-auto max-w-5xl space-y-4">
+      <div className="app-page fg-shell mx-auto max-w-5xl space-y-4">
         {error && (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {error}
           </div>
         )}
-        <div className="surface-card max-w-xl space-y-4 p-6">
-          <h2 className="font-semibold text-slate-800">
+        <div className="fg-card max-w-xl space-y-4 p-6">
+          <h2 className="font-semibold text-slate-100">
             Đang lấy profile cá nhân...
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm fg-subtle">
             Vui lòng ngồi thẳng và nhìn vào camera trong 10 giây.
           </p>
           {startupCalibrationMessage && (
@@ -1245,7 +1334,7 @@ export default function TimerPage() {
           )}
           <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full bg-amber-500 transition-all duration-300"
+              className="h-full rounded-full bg-amber-500"
               style={{
                 width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
               }}
@@ -1282,7 +1371,7 @@ export default function TimerPage() {
   }
 
   return (
-    <div className="app-page mx-auto max-w-5xl">
+    <div className="app-page fg-shell mx-auto max-w-5xl">
       <div>
         <h1 className="page-title">Study Timer</h1>
         <p className="page-subtitle">
@@ -1304,7 +1393,7 @@ export default function TimerPage() {
       )}
 
       {step === "idle" ? (
-        <div className="surface-card max-w-xl space-y-4 p-6">
+        <div className="fg-card max-w-xl space-y-4 p-6">
           <div>
             <label className="field-label">Task (optional)</label>
             <select
@@ -1357,24 +1446,46 @@ export default function TimerPage() {
         </div>
       ) : showStudying ? (
         <div className="space-y-4">
-          {interventionState?.escalation_level === "warning" && (
-            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Attention drifting. Stay on task to avoid auto-pause.
-            </div>
-          )}
-
-          {interventionState?.escalation_level === "paused" && (
-            <div className="rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-              Session paused by intervention:{" "}
-              {interventionState.pause_reason ?? "unknown"}.
-              {interventionState.resume_countdown_sec !== null &&
-                ` Resume in ${Math.ceil(interventionState.resume_countdown_sec)}s.`}
-            </div>
-          )}
-
-          {ergonomicReminderText && (
-            <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-800">
-              {ergonomicReminderText}
+          {unifiedNotification && (
+            <div
+              className={`rounded-xl px-4 py-3 text-sm space-y-2 ${
+                unifiedNotification.tone === "critical"
+                  ? "border border-rose-300 bg-rose-50 text-rose-800"
+                  : unifiedNotification.tone === "paused"
+                    ? "border border-indigo-300 bg-indigo-50 text-indigo-800"
+                    : unifiedNotification.tone === "warning"
+                      ? "border border-amber-300 bg-amber-50 text-amber-800"
+                      : unifiedNotification.tone === "phone"
+                        ? "border border-rose-300 bg-rose-50 text-rose-800"
+                        : unifiedNotification.tone === "posture"
+                          ? `${posturePanelTone.box} ${posturePanelTone.text}`
+                          : "border border-cyan-200 bg-cyan-50 text-cyan-800"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">{unifiedNotification.title}</span>
+                {unifiedNotification.tone === "critical" &&
+                  unackedCriticalAlerts.length > 0 && (
+                    <button
+                      onClick={handleAckAll}
+                      className="text-xs font-semibold underline"
+                    >
+                      Dismiss all
+                    </button>
+                  )}
+              </div>
+              <p>{unifiedNotification.message}</p>
+              {unifiedNotification.tone === "critical" &&
+                unackedCriticalAlerts.length === 1 && (
+                  <button
+                    onClick={() =>
+                      handleAckAlert(String(unackedCriticalAlerts[0].alert_id))
+                    }
+                    className="text-xs font-semibold underline"
+                  >
+                    Dismiss
+                  </button>
+                )}
             </div>
           )}
 
@@ -1391,7 +1502,7 @@ export default function TimerPage() {
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-amber-100">
                 <div
-                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                  className="h-full rounded-full bg-amber-500"
                   style={{
                     width: `${Math.max(0, Math.min(100, calibrationStatus?.calibration_progress ?? 0))}%`,
                   }}
@@ -1412,69 +1523,8 @@ export default function TimerPage() {
             </div>
           )}
 
-          {isPhoneDetectedLive && (
-            <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-              Phone usage detected. Put your phone down to protect focus mode.
-            </div>
-          )}
-
-          {/* ── Critical alert bar ── */}
-          {unackedCriticalAlerts.length > 0 && (
-            <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-rose-700">
-                  Critical Alert
-                  {unackedCriticalAlerts.length > 1 &&
-                    ` (${unackedCriticalAlerts.length})`}
-                </span>
-                <button
-                  onClick={handleAckAll}
-                  className="text-xs font-semibold text-rose-700 underline hover:text-rose-800"
-                >
-                  Dismiss all
-                </button>
-              </div>
-              <p className="text-sm text-rose-700">
-                {unackedCriticalAlerts[0].message ??
-                  "High-severity event detected"}
-              </p>
-              {unackedCriticalAlerts.length === 1 && (
-                <button
-                  onClick={() =>
-                    handleAckAlert(String(unackedCriticalAlerts[0].alert_id))
-                  }
-                  className="text-xs font-semibold text-rose-700 underline hover:text-rose-800"
-                >
-                  Dismiss
-                </button>
-              )}
-            </div>
-          )}
-
-          {settings?.ai_monitoring_enabled !== false && (
-            <div
-              className={`rounded-xl border px-4 py-3 space-y-2 ${posturePanelTone.box}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`text-sm font-semibold ${posturePanelTone.text}`}
-                >
-                  Posture status
-                </span>
-                <span
-                  className={`rounded px-2 py-1 text-[11px] font-semibold ${posturePanelTone.badge}`}
-                >
-                  {postureState.code ?? "OK"}
-                </span>
-              </div>
-              <p className={`text-sm ${posturePanelTone.text}`}>
-                  {postureDisplayMessage}
-              </p>
-            </div>
-          )}
-
           {/* ── Main timer card ── */}
-          <div className="surface-card surface-card-strong p-6 text-center space-y-4">
+          <div className="fg-card p-6 text-center space-y-4">
             <p
               className={`text-lg font-semibold ${BLOCK_COLOR[timer.blockType]}`}
             >
@@ -1488,7 +1538,7 @@ export default function TimerPage() {
             {/* Progress bar */}
             <div className="h-2 w-full rounded-full bg-slate-100">
               <div
-                className="h-2 rounded-full bg-gradient-to-r from-cyan-500 to-sky-600 transition-all"
+                className="h-2 rounded-full bg-gradient-to-r from-cyan-500 to-sky-600"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
@@ -1529,7 +1579,7 @@ export default function TimerPage() {
 
           {/* ── Monitoring widget ── */}
           {settings?.ai_monitoring_enabled !== false && (
-            <div className="surface-card p-4 text-sm space-y-3">
+            <div className="fg-card p-4 text-sm space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-slate-800">
                   AI Monitoring
@@ -1564,7 +1614,9 @@ export default function TimerPage() {
               >
                 <p className="font-medium">
                   AI processing:{" "}
-                  {isAiProcessingLive ? "Live" : "No recent AI signal"}
+                  {isAiProcessingLive
+                    ? "Live"
+                    : "Waiting for recent camera signal"}
                 </p>
                 {latestAiEvent && (
                   <p className="mt-1">
@@ -1715,7 +1767,7 @@ export default function TimerPage() {
           <WhiteNoiseControl />
         </div>
       ) : (
-        <div className="surface-card max-w-xl p-6 text-sm text-slate-600">
+        <div className="fg-card max-w-xl p-6 text-sm fg-subtle">
           Preparing study session...
         </div>
       )}

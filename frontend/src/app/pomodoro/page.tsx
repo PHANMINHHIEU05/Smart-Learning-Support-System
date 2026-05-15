@@ -60,7 +60,7 @@ export default function PomodoroPage() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-100">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-slate-300 border-t-slate-600 rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-12 h-12 border-4 border-slate-300 border-t-slate-600 rounded-full mx-auto mb-4" />
           <p className="text-slate-600">Đang tải Pomodoro...</p>
         </div>
       </div>
@@ -78,13 +78,13 @@ export default function PomodoroPage() {
         <div className="flex gap-4">
           <button
             onClick={() => router.push("/dashboard")}
-            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg"
           >
             📊 Dashboard
           </button>
           <button
             onClick={() => router.push("/analytics")}
-            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition"
+            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg"
           >
             📈 Analytics
           </button>

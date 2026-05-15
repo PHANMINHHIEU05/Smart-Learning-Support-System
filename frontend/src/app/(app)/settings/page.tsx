@@ -60,9 +60,9 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="app-page">
-        <h1 className="page-title">Settings</h1>
-        <p className="text-sm text-slate-500">Loading...</p>
+      <div className="app-page fg-shell">
+        <h1 className="page-title fg-title-glow">Settings</h1>
+        <p className="text-sm fg-subtle">Loading...</p>
       </div>
     );
   }
@@ -70,10 +70,10 @@ export default function SettingsPage() {
   if (!settings) return null;
 
   return (
-    <div className="app-page">
-      <div>
-        <h1 className="page-title">Settings</h1>
-        <p className="page-subtitle">
+    <div className="app-page fg-shell">
+      <div className="fg-header-card">
+        <h1 className="page-title fg-title-glow">Settings</h1>
+        <p className="page-subtitle fg-muted-text">
           Tune timer defaults, monitoring behavior, and retention controls.
         </p>
       </div>
@@ -91,10 +91,10 @@ export default function SettingsPage() {
 
       <form
         onSubmit={handleSave}
-        className="surface-card p-5 md:p-7 space-y-7 max-w-3xl"
+        className="fg-card p-5 md:p-7 space-y-7 max-w-3xl"
       >
         <section>
-          <h2 className="text-lg font-bold text-slate-900">General</h2>
+          <h2 className="text-lg font-bold text-slate-100">General</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
               <label className="field-label">Timezone</label>
@@ -127,7 +127,7 @@ export default function SettingsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-slate-900">Pomodoro</h2>
+          <h2 className="text-lg font-bold text-slate-100">Pomodoro</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             {[
               {
@@ -173,10 +173,10 @@ export default function SettingsPage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-bold text-slate-900">AI Monitoring</h2>
+          <h2 className="text-lg font-bold text-slate-100">AI Monitoring</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">
+            <label className="rounded-xl border border-indigo-400/40 bg-slate-900/35 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-200">
                 Enable AI monitoring
               </span>
               <input
@@ -207,8 +207,8 @@ export default function SettingsPage() {
                 <option value="alerts_only">Alerts only</option>
               </select>
             </div>
-            <label className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-700">
+            <label className="rounded-xl border border-indigo-400/40 bg-slate-900/35 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-200">
                 Critical alert sound
               </span>
               <input

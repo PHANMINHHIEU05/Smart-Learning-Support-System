@@ -115,11 +115,11 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="app-page">
-      <div className="page-header">
+    <div className="app-page fg-shell">
+      <div className="page-header fg-header-card">
         <div>
-          <h1 className="page-title">Tasks</h1>
-          <p className="page-subtitle">
+          <h1 className="page-title fg-title-glow">Tasks</h1>
+          <p className="page-subtitle fg-muted-text">
             Manage priorities and keep focus goals visible.
           </p>
         </div>
@@ -140,7 +140,7 @@ export default function TasksPage() {
         </div>
       )}
 
-      <div className="surface-card p-4">
+      <div className="fg-card p-4">
         <div className="mb-4 flex flex-wrap gap-2">
           {STATUS_TABS.map((status) => (
             <button
@@ -148,8 +148,8 @@ export default function TasksPage() {
               onClick={() => setActiveTab(status)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] ${
                 activeTab === status
-                  ? "border-cyan-500 bg-cyan-600 text-white shadow-md shadow-cyan-600/25"
-                  : "border-slate-200 bg-white/80 text-slate-600 hover:border-cyan-300 hover:text-cyan-700"
+                  ? "border-cyan-300 bg-cyan-400/25 text-cyan-100"
+                  : "border-indigo-400/40 bg-slate-900/30 text-slate-300 hover:border-cyan-300"
               }`}
             >
               {status}
@@ -158,33 +158,33 @@ export default function TasksPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-slate-500">Loading...</p>
+          <p className="fg-subtle text-sm">Loading...</p>
         ) : tasks.length === 0 ? (
-          <p className="text-sm text-slate-500">No {activeTab} tasks.</p>
+          <p className="fg-subtle text-sm">No {activeTab} tasks.</p>
         ) : (
           <div className="space-y-2">
             {tasks.map((task) => (
               <div
                 key={task.task_id}
-                className="rounded-xl border border-slate-200/80 bg-white/75 px-4 py-3"
+                className="rounded-xl border border-indigo-400/40 bg-slate-900/35 px-4 py-3"
               >
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">
+                    <p className="truncate text-sm font-semibold text-slate-100">
                       {task.title}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {task.subject_name && (
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-slate-400">
                           {task.subject_name}
                         </span>
                       )}
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-400">
                         P{task.priority} -{" "}
                         {PRIORITY_LABELS[task.priority] ?? ""}
                       </span>
                       {task.due_at && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
+                        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-200">
                           due {new Date(task.due_at).toLocaleDateString()}
                         </span>
                       )}
@@ -211,7 +211,7 @@ export default function TasksPage() {
 
                   <button
                     onClick={() => handleDelete(task)}
-                    className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                    className="rounded-lg border border-rose-500/40 bg-rose-500/20 px-2 py-1 text-xs font-semibold text-rose-200"
                     aria-label="Delete task"
                   >
                     Delete
@@ -221,7 +221,7 @@ export default function TasksPage() {
                     prefetch
                     onMouseEnter={() => router.prefetch("/timer")}
                     onFocus={() => router.prefetch("/timer")}
-                    className="rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-700 hover:bg-cyan-100"
+                    className="rounded-lg border border-cyan-400/40 bg-cyan-400/15 px-2 py-1 text-xs font-semibold text-cyan-200"
                   >
                     Hoc ngay
                   </Link>
@@ -234,9 +234,9 @@ export default function TasksPage() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 px-4 backdrop-blur-sm">
-          <div className="surface-card surface-card-strong w-full max-w-xl p-6 md:p-7">
-            <h2 className="text-2xl font-bold text-slate-900">New Task</h2>
-            <p className="mt-1 text-sm text-slate-500">
+          <div className="fg-card w-full max-w-xl p-6 md:p-7">
+            <h2 className="text-2xl font-bold fg-title-glow">New Task</h2>
+            <p className="mt-1 text-sm fg-subtle">
               Add a precise, actionable task to keep sessions focused.
             </p>
 
@@ -321,7 +321,7 @@ export default function TasksPage() {
                       placeholder="30, 60, 120..."
                       className="field-input flex-1"
                     />
-                    <span className="flex items-center text-xs text-slate-500 font-medium">
+                    <span className="flex items-center text-xs text-slate-400 font-medium">
                       min
                     </span>
                   </div>
@@ -336,10 +336,10 @@ export default function TasksPage() {
                             estimated_minutes: mins,
                           }))
                         }
-                        className={`rounded px-2 py-1 text-xs font-medium transition ${
+                        className={`rounded px-2 py-1 text-xs font-medium ${
                           formData.estimated_minutes === mins
                             ? "bg-cyan-500 text-white"
-                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            : "bg-slate-700 text-slate-100"
                         }`}
                       >
                         {mins}m
