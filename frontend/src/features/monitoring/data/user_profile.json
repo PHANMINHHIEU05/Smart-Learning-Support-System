@@ -1,0 +1,47 @@
+{
+    "user_id": "default_user",
+    "created_at": "2026-05-17T00:08:25.854173",
+    "is_calibrated": true,
+    "ear_data": {
+        "mean": 0.3963033741764795,
+        "std": 0.07136806435526324,
+        "min_val": 0.11400555596511477,
+        "max_val": 0.46163052193723597,
+        "sample_count": 60
+    },
+    "head_tilt_data": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min_val": 0,
+        "max_val": 0,
+        "sample_count": 60
+    },
+    "shoulder_angle_data": {
+        "mean": 4.215769206998095,
+        "std": 2.0207124637218863,
+        "min_val": 0.09145669794656978,
+        "max_val": 8.092953263880549,
+        "sample_count": 60
+    },
+    "distance_data": {
+        "mean": 0.9782316025571476,
+        "std": 0.028623871889503084,
+        "min_val": 0.9146471527425607,
+        "max_val": 1.0304698183519658,
+        "sample_count": 60
+    },
+    "head_pitch_data": {
+        "mean": -5.071666666666669,
+        "std": 4.033653912879597,
+        "min_val": -14.7,
+        "max_val": 0.3,
+        "sample_count": 60
+    },
+    "ipd_data": {
+        "mean": 0.9782316025571476,
+        "std": 0.028623871889503084,
+        "min_val": 0.9146471527425607,
+        "max_val": 1.0304698183519658,
+        "sample_count": 60
+    }
+}
