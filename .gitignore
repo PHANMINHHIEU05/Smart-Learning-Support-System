@@ -63,6 +63,7 @@ backend/.env.*
 backend/venv/
 backend/.venv/
 backend/.venv*/
+spring-backend/target/
 
 # Monitoring runtime env
 frontend/src/features/monitoring/venv/
