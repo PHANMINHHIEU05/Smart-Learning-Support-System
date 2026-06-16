@@ -1,0 +1,31 @@
+debug: false
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:smart_learning_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+logging:
+  level:
+    root: INFO
+    org.springframework: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+
+app:
+  internal:
+    service-token: test-internal-token
+  security:
+    jwt:
+      enabled: false
