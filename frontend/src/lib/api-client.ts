@@ -13,6 +13,10 @@ const SPRING_API_PATH_PREFIXES = [
   "/api/v1/tasks",
   "/api/v1/sessions",
   "/api/v1/blocks",
+  "/api/v1/settings",
+  "/api/v1/monitoring",
+  "/api/v1/ai-events",
+  "/api/v1/alerts",
 ];
 
 const TOKEN_CACHE_MS = 15_000;

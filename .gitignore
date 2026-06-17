@@ -15,6 +15,9 @@ lib64/
 !frontend/src/lib/
 frontend/src/lib/*
 !frontend/src/lib/api-client.ts
+!frontend/src/lib/monitoring/
+frontend/src/lib/monitoring/*
+!frontend/src/lib/monitoring/browser-detect-client.ts
 parts/
 sdist/
 var/
