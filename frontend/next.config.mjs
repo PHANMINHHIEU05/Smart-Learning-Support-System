@@ -18,7 +18,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'", // Tailwind requires inline styles in dev
       "img-src 'self' data: blob:",
       "font-src 'self'",
-      `connect-src 'self' https://*.supabase.co wss://*.supabase.co http://localhost:8000${isDevelopment ? " ws://localhost:3000 ws://localhost:3001 ws://localhost:3002" : ""}`,
+      `connect-src 'self' https://*.supabase.co wss://*.supabase.co http://localhost:8000 http://localhost:8080${isDevelopment ? " ws://localhost:3000 ws://localhost:3001 ws://localhost:3002" : ""}`,
       "frame-ancestors 'none'",
     ].join("; "),
   },
