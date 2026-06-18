@@ -29,3 +29,5 @@ app:
   security:
     jwt:
       enabled: false
+  ai-worker:
+    vocabulary-enabled: false

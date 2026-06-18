@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # ── Internal Service Authentication ──
+    AI_WORKER_INTERNAL_TOKEN: str = "dev-internal-token"
+
+    # ── Vocabulary Providers ──
+    DICTIONARY_API_BASE_URL: str = "https://api.dictionaryapi.dev"
+    TRANSLATION_API_BASE_URL: str = "https://api.mymemory.translated.net"
+    VOCABULARY_HTTP_TIMEOUT_SECONDS: float = 6.0
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

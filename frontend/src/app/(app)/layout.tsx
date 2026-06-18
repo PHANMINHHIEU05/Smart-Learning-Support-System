@@ -8,6 +8,7 @@ import { useAuth } from "@/providers/AuthProvider";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "◉" },
   { href: "/tasks", label: "Tasks", icon: "▣" },
+  { href: "/vocab", label: "Vocab", icon: "Aa" },
   { href: "/timer", label: "Timer", icon: "◍" },
   { href: "/analytics", label: "Analytics", icon: "◌" },
   { href: "/settings", label: "Settings", icon: "◎" },

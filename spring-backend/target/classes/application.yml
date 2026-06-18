@@ -51,5 +51,6 @@ app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   ai-worker:
-    base-url: ${AI_WORKER_BASE_URL:http://localhost:8001}
+    base-url: ${AI_WORKER_BASE_URL:http://localhost:8000}
     internal-token: ${AI_WORKER_INTERNAL_TOKEN:dev-internal-token}
+    vocabulary-enabled: ${AI_WORKER_VOCABULARY_ENABLED:true}

@@ -167,6 +167,62 @@ export interface UserSettingUpdate {
   critical_sound_enabled?: boolean;
 }
 
+// ── Vocabulary ──────────────────────────────────────────────────────────────
+
+export type VocabStatus =
+  | "not_started"
+  | "learning"
+  | "fuzzy"
+  | "remembered"
+  | "mastered"
+  | "archived";
+
+export type ReviewQuality = "hard" | "fuzzy" | "remembered" | "easy";
+
+export interface VocabEntry {
+  vocab_id: string;
+  user_id: string;
+  term: string;
+  meaning: string | null;
+  example_sentence: string | null;
+  source_type: string | null;
+  source_ref: string | null;
+  status: VocabStatus;
+  ease_factor: number;
+  interval_days: number;
+  repetition_count: number;
+  next_review_at: string;
+  last_reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VocabCaptureRequest {
+  term: string;
+  meaning?: string;
+  example_sentence?: string;
+  context_sentence?: string;
+  page_url?: string;
+  page_title?: string;
+}
+
+export interface VocabLookupResponse {
+  term: string;
+  normalized_term: string;
+  meaning: string | null;
+  translation_vi: string | null;
+  definition_en: string | null;
+  example_sentence: string | null;
+  part_of_speech: string | null;
+  phonetic: string | null;
+  audio_url: string | null;
+  dictionary_provider: string | null;
+  translation_provider: string | null;
+  source_type: string;
+  source_ref: string | null;
+  already_saved: boolean;
+}
+
 // ── Monitoring ──────────────────────────────────────────────────────────────
 
 export type MonitoringMode = "browser_camera" | "alerts_only";

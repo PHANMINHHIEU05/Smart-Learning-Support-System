@@ -10,7 +10,7 @@ from app.core.logging_config import setup_logging
 from app.db.session import async_session_factory
 from app.db.schema_compat import apply_runtime_schema_compatibility
 from app.db.session import engine
-from app.routers import ai_events, alerts, analytics, blocks, engagement, monitoring, sessions, tasks, user_settings
+from app.routers import ai_events, alerts, analytics, blocks, engagement, internal_vocabulary, monitoring, sessions, tasks, user_settings
 from app.routers.monitoring import cleanup_all_monitoring_processes
 from app.services.daily_analytics_service import backfill_daily_analytics, backfill_focus_heatmap_analytics
 
@@ -67,6 +67,7 @@ app.include_router(analytics.router)
 app.include_router(engagement.router)
 app.include_router(user_settings.router)
 app.include_router(monitoring.router)
+app.include_router(internal_vocabulary.router)
 
 
 # ── Health Check ──

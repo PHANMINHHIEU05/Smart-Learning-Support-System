@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SLSS Vocabulary</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div>
+          <p class="eyebrow">Smart Learning</p>
+          <h1>Vocabulary</h1>
+        </div>
+        <button id="refreshSelection" class="icon-button" title="Refresh selected word">
+          R
+        </button>
+      </header>
+
+      <section class="panel">
+        <label for="apiBase">Spring API URL</label>
+        <input id="apiBase" type="url" placeholder="http://localhost:8080" />
+
+        <label for="accessToken">Access token</label>
+        <textarea id="accessToken" rows="3" spellcheck="false"></textarea>
+
+        <button id="saveSettings" class="secondary-button">Save Settings</button>
+      </section>
+
+      <section class="panel">
+        <label for="term">Selected word</label>
+        <input id="term" type="text" maxlength="255" />
+
+        <label for="meaning">Meaning</label>
+        <textarea id="meaning" rows="3"></textarea>
+
+        <div id="lexicalDetails" class="lexical-details" hidden>
+          <div class="lexical-row">
+            <span id="partOfSpeech" class="badge"></span>
+            <span id="phonetic" class="phonetic"></span>
+            <button id="playAudio" class="audio-button" hidden>Pronounce</button>
+          </div>
+          <p id="definitionEnglish" class="definition"></p>
+        </div>
+
+        <label for="exampleSentence">Example sentence</label>
+        <textarea id="exampleSentence" rows="3"></textarea>
+
+        <div class="actions">
+          <button id="lookupWord" class="secondary-button">Lookup</button>
+          <button id="saveWord" class="primary-button">Save Word</button>
+        </div>
+      </section>
+
+      <p id="status" class="status" role="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
