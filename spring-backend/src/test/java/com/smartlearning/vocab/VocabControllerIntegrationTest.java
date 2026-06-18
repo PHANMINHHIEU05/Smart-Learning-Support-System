@@ -194,7 +194,14 @@ class VocabControllerIntegrationTest {
                                 {
                                   "term": "consequence",
                                   "meaning": "ket qua",
+                                  "translation_vi": "hậu quả",
+                                  "definition_en": "a result of an action",
                                   "example_sentence": "Every action has a consequence.",
+                                  "part_of_speech": "noun",
+                                  "phonetic": "/test/",
+                                  "audio_url": "https://audio.test/consequence.mp3",
+                                  "dictionary_provider": "dictionaryapi.dev",
+                                  "translation_provider": "mymemory",
                                   "page_url": "https://example.com/article",
                                   "page_title": "English Reading"
                                 }
@@ -203,6 +210,11 @@ class VocabControllerIntegrationTest {
                 .andExpect(jsonPath("$.vocab_id").isNotEmpty())
                 .andExpect(jsonPath("$.term").value("consequence"))
                 .andExpect(jsonPath("$.meaning").value("ket qua"))
+                .andExpect(jsonPath("$.translation_vi").value("hậu quả"))
+                .andExpect(jsonPath("$.definition_en").value("a result of an action"))
+                .andExpect(jsonPath("$.part_of_speech").value("noun"))
+                .andExpect(jsonPath("$.phonetic").value("/test/"))
+                .andExpect(jsonPath("$.audio_url").value("https://audio.test/consequence.mp3"))
                 .andExpect(jsonPath("$.source_type").value("firefox_extension"))
                 .andExpect(jsonPath("$.source_ref").value("https://example.com/article"))
                 .andExpect(jsonPath("$.status").value("not_started"))
@@ -233,7 +245,48 @@ class VocabControllerIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.vocab_id").value(vocabId))
-                .andExpect(jsonPath("$.meaning").value("ket qua"));
+                .andExpect(jsonPath("$.meaning").value("ket qua"))
+                .andExpect(jsonPath("$.translation_vi").value("hậu quả"));
+    }
+
+    @Test
+    void duplicateCaptureEnrichesMissingMetadata() throws Exception {
+        String userId = UUID.randomUUID().toString();
+
+        String createResponse = mockMvc.perform(post("/api/v1/vocab/capture")
+                        .with(userJwt(userId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "term": "adaptive"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String vocabId = JsonTestSupport.extractString(createResponse, "vocab_id");
+
+        mockMvc.perform(post("/api/v1/vocab/capture")
+                        .with(userJwt(userId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "term": "Adaptive",
+                                  "meaning": "có khả năng thích nghi",
+                                  "translation_vi": "thích nghi",
+                                  "definition_en": "able to change for new conditions",
+                                  "part_of_speech": "adjective",
+                                  "phonetic": "/əˈdæp.tɪv/"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vocab_id").value(vocabId))
+                .andExpect(jsonPath("$.meaning").value("có khả năng thích nghi"))
+                .andExpect(jsonPath("$.translation_vi").value("thích nghi"))
+                .andExpect(jsonPath("$.definition_en").value("able to change for new conditions"))
+                .andExpect(jsonPath("$.part_of_speech").value("adjective"))
+                .andExpect(jsonPath("$.phonetic").value("/əˈdæp.tɪv/"));
     }
 
     @Test

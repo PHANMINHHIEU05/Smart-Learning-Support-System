@@ -21,11 +21,11 @@ public class VocabService {
     private static final BigDecimal DEFAULT_EASE = BigDecimal.valueOf(2.50);
 
     private final VocabEntryRepository repository;
-    private final VocabEnrichmentClient enrichmentClient;
+    private final VocabLookupCacheService lookupCacheService;
 
-    public VocabService(VocabEntryRepository repository, VocabEnrichmentClient enrichmentClient) {
+    public VocabService(VocabEntryRepository repository, VocabLookupCacheService lookupCacheService) {
         this.repository = repository;
-        this.enrichmentClient = enrichmentClient;
+        this.lookupCacheService = lookupCacheService;
     }
 
     @Transactional
@@ -53,7 +53,7 @@ public class VocabService {
         String term = normalizeTerm(request.term());
         ensureTermNotBlank(term);
         boolean alreadySaved = repository.existsByUserIdAndTermIgnoreCase(userId, term);
-        VocabEnrichmentResponse enrichment = enrichmentClient.lookup(term, request.contextSentence()).orElse(null);
+        VocabEnrichmentResponse enrichment = lookupCacheService.resolve(term).orElse(null);
         String normalizedTerm = enrichment == null
                 ? term
                 : firstNonBlank(enrichment.normalizedTerm(), term);
@@ -86,18 +86,58 @@ public class VocabService {
         ensureTermNotBlank(term);
 
         return repository.findByUserIdAndTermIgnoreCase(userId, term)
-                .map(VocabEntryResponse::from)
+                .map(entry -> {
+                    enrichMissingMetadata(entry, request);
+                    return VocabEntryResponse.from(repository.save(entry));
+                })
                 .orElseGet(() -> {
                     VocabEntry entry = new VocabEntry();
                     entry.setUserId(userId);
                     entry.setTerm(term);
                     entry.setMeaning(blankToNull(request.meaning()));
+                    entry.setTranslationVi(blankToNull(request.translationVi()));
+                    entry.setDefinitionEn(blankToNull(request.definitionEn()));
                     entry.setExampleSentence(blankToNull(firstNonBlank(request.exampleSentence(), request.contextSentence())));
+                    entry.setPartOfSpeech(blankToNull(request.partOfSpeech()));
+                    entry.setPhonetic(blankToNull(request.phonetic()));
+                    entry.setAudioUrl(blankToNull(request.audioUrl()));
+                    entry.setDictionaryProvider(blankToNull(request.dictionaryProvider()));
+                    entry.setTranslationProvider(blankToNull(request.translationProvider()));
                     entry.setSourceType("firefox_extension");
                     entry.setSourceRef(blankToNull(firstNonBlank(request.pageUrl(), request.pageTitle())));
                     entry.setStatus(VocabStatus.NOT_STARTED);
                     return VocabEntryResponse.from(repository.save(entry));
                 });
+    }
+
+    private void enrichMissingMetadata(VocabEntry entry, VocabCaptureRequest request) {
+        if (isBlank(entry.getMeaning())) {
+            entry.setMeaning(blankToNull(request.meaning()));
+        }
+        if (isBlank(entry.getTranslationVi())) {
+            entry.setTranslationVi(blankToNull(request.translationVi()));
+        }
+        if (isBlank(entry.getDefinitionEn())) {
+            entry.setDefinitionEn(blankToNull(request.definitionEn()));
+        }
+        if (isBlank(entry.getExampleSentence())) {
+            entry.setExampleSentence(blankToNull(firstNonBlank(request.exampleSentence(), request.contextSentence())));
+        }
+        if (isBlank(entry.getPartOfSpeech())) {
+            entry.setPartOfSpeech(blankToNull(request.partOfSpeech()));
+        }
+        if (isBlank(entry.getPhonetic())) {
+            entry.setPhonetic(blankToNull(request.phonetic()));
+        }
+        if (isBlank(entry.getAudioUrl())) {
+            entry.setAudioUrl(blankToNull(request.audioUrl()));
+        }
+        if (isBlank(entry.getDictionaryProvider())) {
+            entry.setDictionaryProvider(blankToNull(request.dictionaryProvider()));
+        }
+        if (isBlank(entry.getTranslationProvider())) {
+            entry.setTranslationProvider(blankToNull(request.translationProvider()));
+        }
     }
 
     @Transactional(readOnly = true)
@@ -253,6 +293,10 @@ public class VocabService {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static BigDecimal clampEase(BigDecimal ease) {

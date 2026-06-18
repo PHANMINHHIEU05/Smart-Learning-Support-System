@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { apiFetch, getApiAccessToken, SPRING_API_BASE } from "@/lib/api-client";
-import type { ReviewQuality, VocabEntry, VocabStatus } from "@/types/api";
+import type { VocabEntry, VocabStatus } from "@/types/api";
 
 const STATUS_TABS: VocabStatus[] = [
   "not_started",
@@ -11,13 +12,6 @@ const STATUS_TABS: VocabStatus[] = [
   "remembered",
   "mastered",
   "archived",
-];
-
-const REVIEW_ACTIONS: Array<{ quality: ReviewQuality; label: string }> = [
-  { quality: "hard", label: "Hard" },
-  { quality: "fuzzy", label: "Fuzzy" },
-  { quality: "remembered", label: "Remembered" },
-  { quality: "easy", label: "Easy" },
 ];
 
 function formatDateTime(value: string | null): string {
@@ -97,22 +91,6 @@ export default function VocabPage() {
     }
   };
 
-  const handleReview = async (entry: VocabEntry, quality: ReviewQuality) => {
-    setError(null);
-    try {
-      await apiFetch<VocabEntry>(`/api/v1/vocab/${entry.vocab_id}/review`, {
-        method: "POST",
-        body: JSON.stringify({
-          quality,
-          reviewed_at: new Date().toISOString(),
-        }),
-      });
-      fetchEntries(activeStatus);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to review word");
-    }
-  };
-
   const copyExtensionToken = async () => {
     setTokenStatus(null);
     const token = await getApiAccessToken({ forceRefresh: true });
@@ -142,6 +120,13 @@ export default function VocabPage() {
         <div className="flex flex-wrap gap-2">
           <span className="fg-chip">{dueCount} due</span>
           <span className="fg-chip">{reviewLoad} active</span>
+          <Link
+            href="/vocab/review"
+            className="btn-primary"
+            data-testid="vocab-start-review-link"
+          >
+            Review Due Words
+          </Link>
         </div>
       </div>
 
@@ -192,10 +177,27 @@ export default function VocabPage() {
                           <span className="rounded-full bg-cyan-400/15 px-2 py-0.5 text-xs font-semibold uppercase text-cyan-100">
                             {statusLabel(entry.status)}
                           </span>
+                          {entry.part_of_speech && (
+                            <span className="rounded-full border border-indigo-400/40 px-2 py-0.5 text-xs text-slate-300">
+                              {entry.part_of_speech}
+                            </span>
+                          )}
                         </div>
                         <p className="mt-1 text-sm text-slate-300">
-                          {entry.meaning || "Meaning not added yet."}
+                          {entry.translation_vi ||
+                            entry.meaning ||
+                            "Meaning not added yet."}
                         </p>
+                        {entry.phonetic && (
+                          <p className="mt-1 text-xs text-cyan-200">
+                            {entry.phonetic}
+                          </p>
+                        )}
+                        {entry.definition_en && (
+                          <p className="mt-2 text-sm text-slate-400">
+                            {entry.definition_en}
+                          </p>
+                        )}
                         {entry.example_sentence && (
                           <p className="mt-2 text-xs text-slate-400">
                             {entry.example_sentence}
@@ -208,17 +210,16 @@ export default function VocabPage() {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {REVIEW_ACTIONS.map((action) => (
-                          <button
-                            key={action.quality}
-                            onClick={() => handleReview(entry, action.quality)}
-                            className="rounded-lg border border-cyan-400/40 bg-cyan-400/15 px-2 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/25"
-                          >
-                            {action.label}
-                          </button>
-                        ))}
-                      </div>
+                      {entry.audio_url && (
+                        <button
+                          type="button"
+                          onClick={() => window.open(entry.audio_url!, "_blank")}
+                          className="rounded-lg border border-cyan-400/40 bg-cyan-400/15 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/25"
+                          data-testid={`vocab-pronounce-${entry.vocab_id}`}
+                        >
+                          Pronounce
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -243,7 +244,9 @@ export default function VocabPage() {
                       {entry.term}
                     </p>
                     <p className="text-xs text-slate-400">
-                      {entry.meaning || "Meaning not added yet."}
+                      {entry.translation_vi ||
+                        entry.meaning ||
+                        "Meaning not added yet."}
                     </p>
                   </div>
                 ))

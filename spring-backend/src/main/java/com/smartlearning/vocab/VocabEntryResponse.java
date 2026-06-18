@@ -17,8 +17,28 @@ public record VocabEntryResponse(
 
         String meaning,
 
+        @JsonProperty("translation_vi")
+        String translationVi,
+
+        @JsonProperty("definition_en")
+        String definitionEn,
+
         @JsonProperty("example_sentence")
         String exampleSentence,
+
+        @JsonProperty("part_of_speech")
+        String partOfSpeech,
+
+        String phonetic,
+
+        @JsonProperty("audio_url")
+        String audioUrl,
+
+        @JsonProperty("dictionary_provider")
+        String dictionaryProvider,
+
+        @JsonProperty("translation_provider")
+        String translationProvider,
 
         @JsonProperty("source_type")
         String sourceType,
@@ -55,7 +75,14 @@ public record VocabEntryResponse(
                 entry.getUserId(),
                 entry.getTerm(),
                 entry.getMeaning(),
+                entry.getTranslationVi(),
+                entry.getDefinitionEn(),
                 entry.getExampleSentence(),
+                entry.getPartOfSpeech(),
+                entry.getPhonetic(),
+                entry.getAudioUrl(),
+                entry.getDictionaryProvider(),
+                entry.getTranslationProvider(),
                 entry.getSourceType(),
                 entry.getSourceRef(),
                 entry.getStatus(),

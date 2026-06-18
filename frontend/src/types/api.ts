@@ -184,7 +184,14 @@ export interface VocabEntry {
   user_id: string;
   term: string;
   meaning: string | null;
+  translation_vi: string | null;
+  definition_en: string | null;
   example_sentence: string | null;
+  part_of_speech: string | null;
+  phonetic: string | null;
+  audio_url: string | null;
+  dictionary_provider: string | null;
+  translation_provider: string | null;
   source_type: string | null;
   source_ref: string | null;
   status: VocabStatus;
@@ -200,7 +207,14 @@ export interface VocabEntry {
 export interface VocabCaptureRequest {
   term: string;
   meaning?: string;
+  translation_vi?: string;
+  definition_en?: string;
   example_sentence?: string;
+  part_of_speech?: string;
+  phonetic?: string;
+  audio_url?: string;
+  dictionary_provider?: string;
+  translation_provider?: string;
   context_sentence?: string;
   page_url?: string;
   page_title?: string;

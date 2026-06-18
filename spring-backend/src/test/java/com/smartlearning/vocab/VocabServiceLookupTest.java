@@ -15,9 +15,9 @@ class VocabServiceLookupTest {
     void combinesWorkerEnrichmentWithUserSavedState() {
         UUID userId = UUID.randomUUID();
         VocabEntryRepository repository = mock(VocabEntryRepository.class);
-        VocabEnrichmentClient client = mock(VocabEnrichmentClient.class);
+        VocabLookupCacheService cacheService = mock(VocabLookupCacheService.class);
         when(repository.existsByUserIdAndTermIgnoreCase(userId, "Consequence")).thenReturn(true);
-        when(client.lookup("Consequence", "Every action has a consequence."))
+        when(cacheService.resolve("Consequence"))
                 .thenReturn(Optional.of(new VocabEnrichmentResponse(
                         "Consequence",
                         "consequence",
@@ -32,7 +32,7 @@ class VocabServiceLookupTest {
                         "mymemory"
                 )));
 
-        VocabService service = new VocabService(repository, client);
+        VocabService service = new VocabService(repository, cacheService);
         VocabLookupResponse response = service.lookup(
                 userId,
                 new VocabLookupRequest(

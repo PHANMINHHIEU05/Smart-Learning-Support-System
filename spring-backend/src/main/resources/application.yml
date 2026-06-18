@@ -54,3 +54,5 @@ app:
     base-url: ${AI_WORKER_BASE_URL:http://localhost:8000}
     internal-token: ${AI_WORKER_INTERNAL_TOKEN:dev-internal-token}
     vocabulary-enabled: ${AI_WORKER_VOCABULARY_ENABLED:true}
+  vocabulary:
+    cache-ttl-days: ${VOCABULARY_CACHE_TTL_DAYS:7}

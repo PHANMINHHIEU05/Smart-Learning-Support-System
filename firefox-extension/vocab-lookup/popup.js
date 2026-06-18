@@ -19,6 +19,7 @@ const elements = {
 };
 
 let currentAudioUrl = "";
+let currentLookupResult = null;
 
 function setStatus(message) {
   elements.status.textContent = message;
@@ -73,6 +74,10 @@ async function loadSelection() {
 
   elements.term.value = selection.term || "";
   elements.exampleSentence.value = selection.contextSentence || "";
+  currentLookupResult = null;
+  currentAudioUrl = "";
+  elements.lexicalDetails.hidden = true;
+  elements.playAudio.hidden = true;
   await browser.storage.local.set({ pendingSelection: selection });
   await browser.browserAction.setBadgeText({ text: "" });
   setStatus("Selection loaded.");
@@ -123,6 +128,7 @@ async function lookupWord() {
       page_title: stored.pendingSelection?.pageTitle || "",
     });
 
+    currentLookupResult = result;
     elements.term.value = result.normalized_term || result.term || term;
     if (result.meaning) {
       elements.meaning.value = result.meaning;
@@ -164,7 +170,14 @@ async function saveWord() {
     const entry = await apiFetch("/api/v1/vocab/capture", {
       term,
       meaning: elements.meaning.value.trim(),
+      translation_vi: currentLookupResult?.translation_vi || "",
+      definition_en: currentLookupResult?.definition_en || "",
       example_sentence: elements.exampleSentence.value.trim(),
+      part_of_speech: currentLookupResult?.part_of_speech || "",
+      phonetic: currentLookupResult?.phonetic || "",
+      audio_url: currentLookupResult?.audio_url || "",
+      dictionary_provider: currentLookupResult?.dictionary_provider || "",
+      translation_provider: currentLookupResult?.translation_provider || "",
       context_sentence: stored.pendingSelection?.contextSentence || "",
       page_url: stored.pendingSelection?.pageUrl || "",
       page_title: stored.pendingSelection?.pageTitle || "",
