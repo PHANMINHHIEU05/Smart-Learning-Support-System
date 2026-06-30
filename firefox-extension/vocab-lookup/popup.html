@@ -22,10 +22,20 @@
         <label for="apiBase">Spring API URL</label>
         <input id="apiBase" type="url" placeholder="http://localhost:8080" />
 
-        <label for="accessToken">Access token</label>
-        <textarea id="accessToken" rows="3" spellcheck="false"></textarea>
+        <label for="pairingCode">Pairing code</label>
+        <input
+          id="pairingCode"
+          type="text"
+          maxlength="16"
+          placeholder="ABCD-2345"
+          spellcheck="false"
+        />
+        <p class="hint">Create a pairing code from the web Vocabulary page.</p>
 
-        <button id="saveSettings" class="secondary-button">Save Settings</button>
+        <div class="actions">
+          <button id="saveSettings" class="secondary-button">Save URL</button>
+          <button id="pairExtension" class="primary-button">Pair</button>
+        </div>
       </section>
 
       <section class="panel">

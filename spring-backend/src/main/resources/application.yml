@@ -56,3 +56,6 @@ app:
     vocabulary-enabled: ${AI_WORKER_VOCABULARY_ENABLED:true}
   vocabulary:
     cache-ttl-days: ${VOCABULARY_CACHE_TTL_DAYS:7}
+    extension:
+      pairing-code-ttl-minutes: ${VOCABULARY_EXTENSION_PAIRING_CODE_TTL_MINUTES:10}
+      session-ttl-days: ${VOCABULARY_EXTENSION_SESSION_TTL_DAYS:90}

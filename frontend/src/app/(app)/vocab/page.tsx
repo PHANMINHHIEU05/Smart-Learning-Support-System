@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { apiFetch, getApiAccessToken, SPRING_API_BASE } from "@/lib/api-client";
+import { apiFetch, SPRING_API_BASE } from "@/lib/api-client";
 import type { VocabEntry, VocabStatus } from "@/types/api";
 
 const STATUS_TABS: VocabStatus[] = [
@@ -13,6 +13,12 @@ const STATUS_TABS: VocabStatus[] = [
   "mastered",
   "archived",
 ];
+
+interface ExtensionPairingCodeResponse {
+  pairing_code: string;
+  expires_at: string;
+  ttl_seconds: number;
+}
 
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";
@@ -37,7 +43,10 @@ export default function VocabPage() {
   const [manualTerm, setManualTerm] = useState("");
   const [manualMeaning, setManualMeaning] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [tokenStatus, setTokenStatus] = useState<string | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
+  const [pairingStatus, setPairingStatus] = useState<string | null>(null);
+  const [pairingLoading, setPairingLoading] = useState(false);
 
   const dueCount = dueEntries.length;
   const reviewLoad = useMemo(
@@ -91,19 +100,35 @@ export default function VocabPage() {
     }
   };
 
-  const copyExtensionToken = async () => {
-    setTokenStatus(null);
-    const token = await getApiAccessToken({ forceRefresh: true });
-    if (!token) {
-      setTokenStatus("No active login token found.");
-      return;
-    }
-
+  const createExtensionPairingCode = async () => {
+    setPairingStatus(null);
+    setPairingLoading(true);
     try {
-      await navigator.clipboard.writeText(token);
-      setTokenStatus("Token copied. Paste it into the Firefox extension popup.");
+      const response = await apiFetch<ExtensionPairingCodeResponse>(
+        "/api/v1/vocab/extension/pairing-codes",
+        { method: "POST" },
+      );
+      setPairingCode(response.pairing_code);
+      setPairingExpiresAt(response.expires_at);
+      setPairingStatus(
+        `Enter this code in Firefox within ${Math.round(response.ttl_seconds / 60)} minutes.`,
+      );
+    } catch (e: unknown) {
+      setPairingStatus(
+        e instanceof Error ? e.message : "Could not create pairing code.",
+      );
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
+  const copyPairingCode = async () => {
+    if (!pairingCode) return;
+    try {
+      await navigator.clipboard.writeText(pairingCode);
+      setPairingStatus("Pairing code copied.");
     } catch {
-      setTokenStatus("Could not copy automatically. Refresh and try again.");
+      setPairingStatus("Could not copy automatically.");
     }
   };
 
@@ -262,13 +287,36 @@ export default function VocabPage() {
               Spring API: {SPRING_API_BASE}
             </p>
             <button
-              onClick={copyExtensionToken}
+              type="button"
+              onClick={createExtensionPairingCode}
+              disabled={pairingLoading}
               className="btn-primary mt-4 w-full"
+              data-testid="vocab-create-extension-pairing-code-button"
             >
-              Copy Extension Token
+              {pairingLoading ? "Creating..." : "Create Pairing Code"}
             </button>
-            {tokenStatus && (
-              <p className="mt-3 text-xs text-cyan-100">{tokenStatus}</p>
+            {pairingCode && (
+              <div className="mt-4 rounded-lg border border-cyan-400/35 bg-cyan-400/10 px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-cyan-200">
+                  Pairing Code
+                </p>
+                <button
+                  type="button"
+                  onClick={copyPairingCode}
+                  className="mt-2 w-full rounded-lg border border-cyan-300/40 bg-slate-950/50 px-3 py-2 text-center text-2xl font-black tracking-[0.16em] text-cyan-100"
+                  data-testid="vocab-copy-extension-pairing-code-button"
+                >
+                  {pairingCode}
+                </button>
+                {pairingExpiresAt && (
+                  <p className="mt-2 text-xs text-slate-300">
+                    Expires: {formatDateTime(pairingExpiresAt)}
+                  </p>
+                )}
+              </div>
+            )}
+            {pairingStatus && (
+              <p className="mt-3 text-xs text-cyan-100">{pairingStatus}</p>
             )}
           </section>
 

@@ -9,11 +9,11 @@ This extension captures a selected English word from Firefox and saves it into t
 1. Start Spring Boot at `http://localhost:8080`.
 2. Start the frontend and log in.
 3. Open the web app Vocabulary page.
-4. Click `Copy Extension Token`.
+4. Click `Create Pairing Code`.
 5. In Firefox, open `about:debugging#/runtime/this-firefox`.
 6. Click `Load Temporary Add-on`.
 7. Select `manifest.json` from this folder.
-8. Open the extension popup and paste the copied token.
+8. Open the extension popup, enter the pairing code, and click `Pair`.
 
 ## Use
 
@@ -25,6 +25,8 @@ This extension captures a selected English word from Firefox and saves it into t
 ## Current Behavior
 
 - Lookup returns Vietnamese translation, English definition, part of speech, phonetic text, pronunciation audio, example sentence, and saved-state metadata.
+- The extension exchanges a short-lived pairing code for its own extension token.
+- Vocabulary requests use `X-SLSS-Extension-Token`; the web JWT is no longer pasted into the popup.
 - Save calls `POST /api/v1/vocab/capture`.
 - Duplicate captures return the existing vocabulary entry instead of creating a second row.
 

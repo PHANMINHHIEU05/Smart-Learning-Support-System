@@ -2,7 +2,7 @@ const DEFAULT_API_BASE = "http://localhost:8080";
 
 const elements = {
   apiBase: document.getElementById("apiBase"),
-  accessToken: document.getElementById("accessToken"),
+  pairingCode: document.getElementById("pairingCode"),
   term: document.getElementById("term"),
   meaning: document.getElementById("meaning"),
   exampleSentence: document.getElementById("exampleSentence"),
@@ -13,6 +13,7 @@ const elements = {
   playAudio: document.getElementById("playAudio"),
   status: document.getElementById("status"),
   saveSettings: document.getElementById("saveSettings"),
+  pairExtension: document.getElementById("pairExtension"),
   refreshSelection: document.getElementById("refreshSelection"),
   lookupWord: document.getElementById("lookupWord"),
   saveWord: document.getElementById("saveWord"),
@@ -31,17 +32,59 @@ function normalizeApiBase(value) {
 }
 
 async function loadSettings() {
-  const data = await browser.storage.local.get(["apiBase", "accessToken"]);
+  const data = await browser.storage.local.get(["apiBase", "extensionToken"]);
   elements.apiBase.value = data.apiBase || DEFAULT_API_BASE;
-  elements.accessToken.value = data.accessToken || "";
+  setStatus(data.extensionToken ? "Extension paired." : "Pair this extension first.");
 }
 
 async function saveSettings() {
   const apiBase = normalizeApiBase(elements.apiBase.value);
-  const accessToken = elements.accessToken.value.trim();
-  await browser.storage.local.set({ apiBase, accessToken });
+  await browser.storage.local.set({ apiBase });
   elements.apiBase.value = apiBase;
-  setStatus("Settings saved.");
+  setStatus("Spring API URL saved.");
+}
+
+async function pairExtension() {
+  const pairingCode = elements.pairingCode.value.trim();
+  if (!pairingCode) {
+    setStatus("Enter the pairing code from the web app.");
+    return;
+  }
+
+  elements.pairExtension.disabled = true;
+  setStatus("Pairing...");
+  try {
+    const apiBase = normalizeApiBase(elements.apiBase.value);
+    const response = await fetch(`${apiBase}/api/v1/vocab/extension/exchange`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pairing_code: pairingCode,
+        device_label: "Firefox Vocabulary Extension",
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Pairing failed with ${response.status}`);
+    }
+
+    const result = await response.json();
+    await browser.storage.local.set({
+      apiBase,
+      extensionToken: result.extension_token,
+      extensionTokenExpiresAt: result.expires_at,
+    });
+    elements.apiBase.value = apiBase;
+    elements.pairingCode.value = "";
+    setStatus("Extension paired. You can lookup and save words now.");
+  } catch (error) {
+    setStatus(error.message || "Pairing failed.");
+  } finally {
+    elements.pairExtension.disabled = false;
+  }
 }
 
 async function getActiveTabSelection() {
@@ -84,19 +127,19 @@ async function loadSelection() {
 }
 
 async function apiFetch(path, body) {
-  const { apiBase, accessToken } = await browser.storage.local.get([
+  const { apiBase, extensionToken } = await browser.storage.local.get([
     "apiBase",
-    "accessToken",
+    "extensionToken",
   ]);
-  const token = accessToken || elements.accessToken.value.trim();
+  const token = extensionToken || "";
   if (!token) {
-    throw new Error("Paste your web app access token first.");
+    throw new Error("Pair this extension from the web Vocabulary page first.");
   }
 
   const response = await fetch(`${normalizeApiBase(apiBase)}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      "X-SLSS-Extension-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -198,6 +241,7 @@ async function playPronunciation() {
 }
 
 elements.saveSettings.addEventListener("click", saveSettings);
+elements.pairExtension.addEventListener("click", pairExtension);
 elements.refreshSelection.addEventListener("click", loadSelection);
 elements.lookupWord.addEventListener("click", lookupWord);
 elements.saveWord.addEventListener("click", saveWord);
