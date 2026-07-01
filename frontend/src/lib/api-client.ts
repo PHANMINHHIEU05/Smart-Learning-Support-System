@@ -96,6 +96,14 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const token = await getApiAccessToken();
   const apiBase = getApiBaseForPath(path);
+  const usesSpringApi = apiBase === SPRING_API_BASE;
+
+  if (usesSpringApi && !token) {
+    throw new ApiError(
+      401,
+      "Frontend khong lay duoc Supabase access token. Hay kiem tra NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY va dang nhap lai.",
+    );
+  }
 
   const res = await fetch(`${apiBase}${path}`, {
     ...options,
@@ -109,7 +117,12 @@ export async function apiFetch<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-    throw new ApiError(res.status, text);
+    const message =
+      text ||
+      (res.status === 401
+        ? "Spring Boot tu choi token dang nhap. Hay kiem tra APP_SECURITY_JWT_SECRET hoac cau hinh SUPABASE_URL/SUPABASE_ANON_KEY cua Spring."
+        : res.statusText);
+    throw new ApiError(res.status, message);
   }
 
   // 204 No Content

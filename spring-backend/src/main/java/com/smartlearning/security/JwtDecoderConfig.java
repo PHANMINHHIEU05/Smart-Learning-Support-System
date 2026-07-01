@@ -21,30 +21,43 @@ public class JwtDecoderConfig {
     JwtDecoder jwtDecoder(
             @Value("${app.security.jwt.issuer-uri:}") String issuerUri,
             @Value("${app.security.jwt.jwk-set-uri:}") String jwkSetUri,
-            @Value("${app.security.jwt.secret:}") String jwtSecret
+            @Value("${app.security.jwt.secret:}") String jwtSecret,
+            @Value("${app.security.jwt.supabase-url:}") String supabaseUrl,
+            @Value("${app.security.jwt.supabase-anon-key:}") String supabaseAnonKey,
+            @Value("${app.security.jwt.remote-fallback-enabled:true}") boolean remoteFallbackEnabled
     ) {
+        JwtDecoder localDecoder = null;
+
         if (StringUtils.hasText(jwkSetUri)) {
-            return NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
-        }
-
-        if (StringUtils.hasText(issuerUri)) {
-            return JwtDecoders.fromIssuerLocation(issuerUri);
-        }
-
-        if (StringUtils.hasText(jwtSecret)) {
+            localDecoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
+        } else if (StringUtils.hasText(issuerUri)) {
+            localDecoder = JwtDecoders.fromIssuerLocation(issuerUri);
+        } else if (StringUtils.hasText(jwtSecret)) {
             SecretKeySpec secretKey = new SecretKeySpec(
                     jwtSecret.getBytes(StandardCharsets.UTF_8),
                     "HmacSHA256"
             );
 
-            return NimbusJwtDecoder
+            localDecoder = NimbusJwtDecoder
                     .withSecretKey(secretKey)
                     .macAlgorithm(MacAlgorithm.HS256)
                     .build();
         }
 
+        if (
+                remoteFallbackEnabled
+                        && StringUtils.hasText(supabaseUrl)
+                        && StringUtils.hasText(supabaseAnonKey)
+        ) {
+            return new SupabaseFallbackJwtDecoder(localDecoder, supabaseUrl, supabaseAnonKey);
+        }
+
+        if (localDecoder != null) {
+            return localDecoder;
+        }
+
         throw new IllegalStateException(
-                "JWT auth is enabled. Set APP_SECURITY_JWT_ISSUER_URI, APP_SECURITY_JWT_JWK_SET_URI, or APP_SECURITY_JWT_SECRET."
+                "JWT auth is enabled. Set APP_SECURITY_JWT_ISSUER_URI, APP_SECURITY_JWT_JWK_SET_URI, APP_SECURITY_JWT_SECRET, or SUPABASE_URL + SUPABASE_ANON_KEY."
         );
     }
 }

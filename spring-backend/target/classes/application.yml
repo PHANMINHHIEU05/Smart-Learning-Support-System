@@ -48,6 +48,9 @@ app:
       issuer-uri: ${APP_SECURITY_JWT_ISSUER_URI:}
       jwk-set-uri: ${APP_SECURITY_JWT_JWK_SET_URI:}
       secret: ${APP_SECURITY_JWT_SECRET:}
+      supabase-url: ${SUPABASE_URL:}
+      supabase-anon-key: ${SUPABASE_ANON_KEY:}
+      remote-fallback-enabled: ${APP_SECURITY_JWT_REMOTE_FALLBACK_ENABLED:true}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000}
   ai-worker:

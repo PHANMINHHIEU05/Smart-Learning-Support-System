@@ -13,8 +13,11 @@ cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/spring-backend
 # SPRING_DATASOURCE_URL=jdbc:postgresql://db.xxxxxxxxxxxxx.supabase.co:5432/postgres
 # SPRING_DATASOURCE_USERNAME=postgres
 # SPRING_DATASOURCE_PASSWORD=mat_khau_database_that
-# APP_SECURITY_JWT_ISSUER_URI=https://xxxxxxxxxxxxx.supabase.co/auth/v1
-# APP_SECURITY_JWT_JWK_SET_URI=https://xxxxxxxxxxxxx.supabase.co/auth/v1/.well-known/jwks.json
+# APP_SECURITY_JWT_SECRET=jwt_secret_that
+# APP_SECURITY_JWT_ISSUER_URI=
+# APP_SECURITY_JWT_JWK_SET_URI=
+# SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
+# SUPABASE_ANON_KEY=anon_key_that
 # APP_INTERNAL_SERVICE_TOKEN=dev-internal-token
 # AI_WORKER_BASE_URL=http://localhost:8000
 # AI_WORKER_INTERNAL_TOKEN=dev-internal-token
@@ -22,6 +25,10 @@ cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/spring-backend
 # Neu password co ky tu dac biet, boc gia tri bang dau nhay don trong .env.
 # Chuoi `xxxxxxxxxxxxx` trong vi du van la placeholder.
 # Ban phai thay no bang Project Ref that cua Supabase, vi du `db.abcdefghijklmnop.supabase.co`.
+# Neu copy tu FastAPI DATABASE_URL:
+# - `%40` trong URL nghia la ky tu `@` trong password that.
+# - Spring dung password rieng trong SPRING_DATASOURCE_PASSWORD, nen dien password da decode.
+# - Vi du: URL co `myPass%40` thi Spring password la `myPass@`.
 
 if [[ -f .env ]]; then
   set -a
@@ -55,6 +62,11 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 Terminal 3 - Frontend:
 
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/frontend
+
+# Frontend can 2 bien Supabase public de lay access token dang nhap.
+# Dien cung project voi Spring/FastAPI, khong dung placeholder.
+# export NEXT_PUBLIC_SUPABASE_URL='https://xxxxxxxxxxxxx.supabase.co'
+# export NEXT_PUBLIC_SUPABASE_ANON_KEY='anon_key_that'
 export NEXT_PUBLIC_API_URL='http://localhost:8000'
 export NEXT_PUBLIC_SPRING_API_URL='http://localhost:8080'
 npm run dev
@@ -103,6 +115,8 @@ Nếu extension không Pair được:
 - Reload temporary add-on trong Firefox.
 - Tao pairing code moi, vi code cu het han sau 10 phut.
 - Kiem tra popup dang tro toi Spring API URL: http://localhost:8080
+- Neu web bao 401, Spring dang khong cong nhan token dang nhap. Kiem tra `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `APP_SECURITY_JWT_SECRET` trong `spring-backend/.env`, sau do restart Spring.
+- Neu web bao frontend khong lay duoc access token, kiem tra `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` trong terminal frontend, sau do restart `npm run dev` va dang nhap lai.
 
 Nếu Spring báo UnknownHostException: <supabase-host>:
 
@@ -117,3 +131,9 @@ Nếu Spring báo UnknownHostException: db.xxxxxxxxxxxxx.supabase.co:
 - Nghia la ban da thay `<supabase-host>` bang mot host mau khac, nhung van chua phai host that.
 - Vao Supabase Dashboard -> Project Settings -> Database -> Connection string -> JDBC.
 - Copy host that trong JDBC, khong tu go `xxxxxxxxxxxxx`.
+
+Nếu Spring báo password/authentication failed:
+
+- Kiem tra `SPRING_DATASOURCE_PASSWORD`.
+- Neu FastAPI `DATABASE_URL` co `%40`, Spring password phai co ky tu `@`.
+- Neu password co ky tu dac biet, boc bang dau nhay don trong `.env`.
