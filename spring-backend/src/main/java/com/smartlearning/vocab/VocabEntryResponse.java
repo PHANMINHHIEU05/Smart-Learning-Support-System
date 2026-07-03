@@ -26,6 +26,8 @@ public record VocabEntryResponse(
         @JsonProperty("example_sentence")
         String exampleSentence,
 
+        String collocation,
+
         @JsonProperty("part_of_speech")
         String partOfSpeech,
 
@@ -57,6 +59,9 @@ public record VocabEntryResponse(
         @JsonProperty("repetition_count")
         Integer repetitionCount,
 
+        @JsonProperty("study_box")
+        Integer studyBox,
+
         @JsonProperty("next_review_at")
         OffsetDateTime nextReviewAt,
 
@@ -78,6 +83,7 @@ public record VocabEntryResponse(
                 entry.getTranslationVi(),
                 entry.getDefinitionEn(),
                 entry.getExampleSentence(),
+                entry.getCollocation(),
                 entry.getPartOfSpeech(),
                 entry.getPhonetic(),
                 entry.getAudioUrl(),
@@ -89,6 +95,7 @@ public record VocabEntryResponse(
                 entry.getEaseFactor(),
                 entry.getIntervalDays(),
                 entry.getRepetitionCount(),
+                entry.getStudyBox(),
                 entry.getNextReviewAt(),
                 entry.getLastReviewedAt(),
                 entry.getCreatedAt(),

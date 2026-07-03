@@ -1,9 +1,12 @@
 const DICTIONARY_API_BASE = "https://api.dictionaryapi.dev";
 const TRANSLATION_API_BASE = "https://api.mymemory.translated.net";
+const SPRING_API_BASE = "http://localhost:8080";
 
 const elements = {
   term: document.getElementById("term"),
   meaning: document.getElementById("meaning"),
+  partOfSpeechInput: document.getElementById("partOfSpeechInput"),
+  collocation: document.getElementById("collocation"),
   exampleSentence: document.getElementById("exampleSentence"),
   lookupSummary: document.getElementById("lookupSummary"),
   summaryTerm: document.getElementById("summaryTerm"),
@@ -83,7 +86,8 @@ async function saveLocalVocabularyEntry(result, fallbackTerm) {
       cleanText(result?.example_sentence) ||
       cleanText(elements.exampleSentence.value) ||
       "",
-    part_of_speech: cleanText(result?.part_of_speech) || "",
+    collocation: cleanText(result?.collocation) || cleanText(elements.collocation.value) || "",
+    part_of_speech: cleanText(elements.partOfSpeechInput.value) || cleanText(result?.part_of_speech) || "",
     phonetic: cleanText(result?.phonetic) || "",
     audio_url: cleanText(result?.audio_url) || "",
     dictionary_provider: cleanText(result?.dictionary_provider) || "",
@@ -96,6 +100,45 @@ async function saveLocalVocabularyEntry(result, fallbackTerm) {
   localVocabulary[normalizedTerm] = entry;
   await browser.storage.local.set({ localVocabulary });
   return entry;
+}
+
+async function savePersonalWebVocabularyEntry(result, fallbackTerm) {
+  const term = cleanText(result?.normalized_term || result?.term || fallbackTerm);
+  if (!term) {
+    throw new Error("No word selected.");
+  }
+
+  const response = await fetch(`${SPRING_API_BASE}/api/v1/vocab/personal/capture`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      term,
+      meaning: cleanText(result?.meaning) || cleanText(elements.meaning.value) || "",
+      translation_vi: cleanText(result?.translation_vi) || "",
+      definition_en: cleanText(result?.definition_en) || "",
+      example_sentence:
+        cleanText(result?.example_sentence) ||
+        cleanText(elements.exampleSentence.value) ||
+        "",
+      collocation: cleanText(result?.collocation) || cleanText(elements.collocation.value) || "",
+      part_of_speech: cleanText(elements.partOfSpeechInput.value) || cleanText(result?.part_of_speech) || "",
+      phonetic: cleanText(result?.phonetic) || "",
+      audio_url: cleanText(result?.audio_url) || "",
+      dictionary_provider: cleanText(result?.dictionary_provider) || "",
+      translation_provider: cleanText(result?.translation_provider) || "",
+      context_sentence: cleanText(elements.exampleSentence.value) || "",
+      page_title: "Firefox Vocabulary Extension",
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Spring save failed with ${response.status}`);
+  }
+
+  return response.json();
 }
 
 function firstDictionaryResult(payload) {
@@ -206,6 +249,8 @@ function resetLookupUi() {
   elements.translationResult.textContent = "";
   elements.definitionResult.textContent = "";
   elements.partOfSpeech.textContent = "";
+  elements.partOfSpeechInput.value = "";
+  elements.collocation.value = "";
   elements.phonetic.textContent = "";
   elements.definitionEnglish.textContent = "";
   elements.lexicalDetails.hidden = true;
@@ -243,6 +288,12 @@ function renderLookupResult(result, fallbackTerm) {
   }
   if (result.example_sentence) {
     elements.exampleSentence.value = result.example_sentence;
+  }
+  if (result.part_of_speech) {
+    elements.partOfSpeechInput.value = result.part_of_speech;
+  }
+  if (result.collocation) {
+    elements.collocation.value = result.collocation;
   }
 
   elements.partOfSpeech.textContent = result.part_of_speech || "";
@@ -322,6 +373,8 @@ async function loadSelection({ autoLookup = false } = {}) {
 
   elements.term.value = selection.term || "";
   elements.meaning.value = "";
+  elements.partOfSpeechInput.value = "";
+  elements.collocation.value = "";
   elements.exampleSentence.value = selection.contextSentence || "";
   resetLookupUi();
   currentPronunciationText = selection.term || "";
@@ -378,13 +431,46 @@ async function saveWord() {
   }
 
   elements.saveWord.disabled = true;
-  setStatus("Saving locally...");
+  setStatus("Saving to web...");
   try {
+    const webEntry = await savePersonalWebVocabularyEntry(
+      currentLookupResult || {
+        term,
+        normalized_term: normalizeLocalTerm(term),
+        meaning: elements.meaning.value,
+        part_of_speech: elements.partOfSpeechInput.value,
+        collocation: elements.collocation.value,
+        example_sentence: elements.exampleSentence.value,
+      },
+      term,
+    );
+    await saveLocalVocabularyEntry(
+      {
+        ...(currentLookupResult || {}),
+        ...webEntry,
+        normalized_term: webEntry.term,
+        saved_status: webEntry.status,
+      },
+      webEntry.term,
+    );
+    currentLookupResult = {
+      ...(currentLookupResult || {}),
+      ...webEntry,
+      normalized_term: webEntry.term,
+      already_saved: true,
+      saved_vocab_id: webEntry.vocab_id,
+      saved_status: webEntry.status,
+    };
+    renderLookupResult(currentLookupResult, webEntry.term);
+    setStatus(`Saved to web: ${webEntry.term}`);
+  } catch {
     const localEntry = await saveLocalVocabularyEntry(
       currentLookupResult || {
         term,
         normalized_term: normalizeLocalTerm(term),
         meaning: elements.meaning.value,
+        part_of_speech: elements.partOfSpeechInput.value,
+        collocation: elements.collocation.value,
         example_sentence: elements.exampleSentence.value,
       },
       term,
@@ -397,9 +483,7 @@ async function saveWord() {
       saved_status: "local_only",
     };
     renderLookupResult(currentLookupResult, localEntry.term);
-    setStatus(`Saved locally: ${localEntry.term}`);
-  } catch (error) {
-    setStatus(error.message || "Local save failed.");
+    setStatus(`Spring is unavailable, saved locally: ${localEntry.term}`);
   } finally {
     elements.saveWord.disabled = false;
   }

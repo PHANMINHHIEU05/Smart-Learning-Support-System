@@ -187,6 +187,7 @@ export interface VocabEntry {
   translation_vi: string | null;
   definition_en: string | null;
   example_sentence: string | null;
+  collocation: string | null;
   part_of_speech: string | null;
   phonetic: string | null;
   audio_url: string | null;
@@ -198,6 +199,7 @@ export interface VocabEntry {
   ease_factor: number;
   interval_days: number;
   repetition_count: number;
+  study_box: number;
   next_review_at: string;
   last_reviewed_at: string | null;
   created_at: string;
@@ -210,6 +212,7 @@ export interface VocabCaptureRequest {
   translation_vi?: string;
   definition_en?: string;
   example_sentence?: string;
+  collocation?: string;
   part_of_speech?: string;
   phonetic?: string;
   audio_url?: string;
@@ -227,6 +230,7 @@ export interface VocabLookupResponse {
   translation_vi: string | null;
   definition_en: string | null;
   example_sentence: string | null;
+  collocation?: string | null;
   part_of_speech: string | null;
   phonetic: string | null;
   audio_url: string | null;

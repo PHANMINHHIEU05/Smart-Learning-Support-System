@@ -252,6 +252,58 @@ class VocabControllerIntegrationTest {
     }
 
     @Test
+    void personalVocabularyCaptureListAndReviewDoNotRequireJwt() throws Exception {
+        String captureResponse = mockMvc.perform(post("/api/v1/vocab/personal/capture")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "term": "resilient",
+                                  "meaning": "kiên cường",
+                                  "definition_en": "able to recover quickly",
+                                  "collocation": "remain resilient",
+                                  "part_of_speech": "adjective",
+                                  "example_sentence": "The team remained resilient after the delay.",
+                                  "phonetic": "/rɪˈzɪljənt/"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.term").value("resilient"))
+                .andExpect(jsonPath("$.meaning").value("kiên cường"))
+                .andExpect(jsonPath("$.collocation").value("remain resilient"))
+                .andExpect(jsonPath("$.part_of_speech").value("adjective"))
+                .andExpect(jsonPath("$.example_sentence").value("The team remained resilient after the delay."))
+                .andExpect(jsonPath("$.status").value("learning"))
+                .andExpect(jsonPath("$.study_box").value(1))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String vocabId = JsonTestSupport.extractString(captureResponse, "vocab_id");
+
+        mockMvc.perform(get("/api/v1/vocab/personal/?status=learning&limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].vocab_id").value(vocabId));
+
+        mockMvc.perform(get("/api/v1/vocab/personal/due?limit=20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].vocab_id").value(vocabId));
+
+        mockMvc.perform(post("/api/v1/vocab/personal/{vocabId}/quiz-result", vocabId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "correct": true,
+                                  "reviewed_at": "2026-07-03T09:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.vocab_id").value(vocabId))
+                .andExpect(jsonPath("$.status").value("learning"))
+                .andExpect(jsonPath("$.study_box").value(2))
+                .andExpect(jsonPath("$.interval_days").value(2))
+                .andExpect(jsonPath("$.next_review_at").value("2026-07-05T00:00:00Z"));
+    }
+
+    @Test
     void duplicateCaptureEnrichesMissingMetadata() throws Exception {
         String userId = UUID.randomUUID().toString();
 

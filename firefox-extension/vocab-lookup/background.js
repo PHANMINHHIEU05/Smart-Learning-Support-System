@@ -1,5 +1,6 @@
 const DICTIONARY_API_BASE = "https://api.dictionaryapi.dev";
 const TRANSLATION_API_BASE = "https://api.mymemory.translated.net";
+const SPRING_API_BASE = "http://localhost:8080";
 const MENU_PREPARE_ID = "slss-prepare-selection";
 const MENU_SAVE_ID = "slss-save-selection";
 
@@ -146,6 +147,47 @@ async function saveLocalVocabularyEntry(payload, lookupResult = null) {
   return entry;
 }
 
+async function savePersonalWebVocabularyEntry(payload, lookupResult = null) {
+  const term = cleanText(
+    lookupResult?.normalized_term || lookupResult?.term || payload.term,
+  );
+  if (!term) {
+    throw new Error("No selected word found.");
+  }
+
+  const response = await fetch(`${SPRING_API_BASE}/api/v1/vocab/personal/capture`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      term,
+      meaning: cleanText(lookupResult?.meaning) || "",
+      translation_vi: cleanText(lookupResult?.translation_vi) || "",
+      definition_en: cleanText(lookupResult?.definition_en) || "",
+      example_sentence:
+        cleanText(lookupResult?.example_sentence) ||
+        cleanText(payload.contextSentence) ||
+        "",
+      part_of_speech: cleanText(lookupResult?.part_of_speech) || "",
+      phonetic: cleanText(lookupResult?.phonetic) || "",
+      audio_url: cleanText(lookupResult?.audio_url) || "",
+      dictionary_provider: cleanText(lookupResult?.dictionary_provider) || "",
+      translation_provider: cleanText(lookupResult?.translation_provider) || "",
+      context_sentence: cleanText(payload.contextSentence) || "",
+      page_url: cleanText(payload.pageUrl) || "",
+      page_title: cleanText(payload.pageTitle) || "Firefox Vocabulary Extension",
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Spring save failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function setBadge(text, color = "#0891b2", clearAfterMs = 0) {
   await browser.browserAction.setBadgeText({ text });
   await browser.browserAction.setBadgeBackgroundColor({ color });
@@ -250,13 +292,25 @@ async function saveSelectionNow(info, tab) {
   }
 
   await setBadge("...", "#0891b2");
-  await setLastStatus(`Saving "${payload.term}" locally...`, "info");
+  await setLastStatus(`Saving "${payload.term}" to web...`, "info");
 
   try {
     const lookupResult = await directLookup(payload.term, payload.contextSentence);
-    const entry = await saveLocalVocabularyEntry(payload, lookupResult);
-    await setBadge("LOCAL", "#16a34a", 4500);
-    await setLastStatus(`Saved locally "${entry.term}".`, "success");
+    try {
+      const entry = await savePersonalWebVocabularyEntry(payload, lookupResult);
+      await saveLocalVocabularyEntry(payload, {
+        ...lookupResult,
+        ...entry,
+        normalized_term: entry.term,
+        saved_status: entry.status,
+      });
+      await setBadge("WEB", "#16a34a", 4500);
+      await setLastStatus(`Saved to web "${entry.term}".`, "success");
+    } catch {
+      const entry = await saveLocalVocabularyEntry(payload, lookupResult);
+      await setBadge("LOCAL", "#16a34a", 4500);
+      await setLastStatus(`Spring unavailable, saved locally "${entry.term}".`, "success");
+    }
   } catch (error) {
     await setBadge("!", "#e11d48", 6000);
     await setLastStatus(error.message || "Local save failed.", "error");
@@ -272,7 +326,7 @@ async function createContextMenus() {
   });
   browser.contextMenus.create({
     id: MENU_SAVE_ID,
-    title: "SLSS: Save selected word locally",
+    title: "SLSS: Save selected word",
     contexts: ["selection"],
   });
 }

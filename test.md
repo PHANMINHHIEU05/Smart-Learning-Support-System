@@ -69,9 +69,10 @@ Firefox extension local-only:
 8. Boi den mot tu tieng Anh, bam icon extension.
 9. Popup se tu hien nghia tieng Viet, phien am, dinh nghia tieng Anh va nut `Listen` phat am, khong can login/pair.
 10. Nut `Listen` nam ngay canh o `Selected word`, bam la nghe phat am ngay ca khi chua luu tu.
-11. Bam `Save Word` de luu local vao Firefox extension storage, khong can tai khoan/login.
-12. Cach nhanh hon: boi den tu, chuot phai, chon `SLSS: Save selected word locally`.
-13. Neu muon sua truoc khi luu: boi den tu, chuot phai, chon `SLSS: Open selected word in popup`.
+11. Bam `Save Word` de luu vao web `/vocab` qua Spring personal mode, khong can tai khoan/login.
+12. Neu Spring chua chay, extension se fallback luu local vao Firefox extension storage de khong mat tu.
+13. Cach nhanh hon: boi den tu, chuot phai, chon `SLSS: Save selected word`; neu Spring dang chay thi no se luu vao web.
+14. Neu muon sua truoc khi luu: boi den tu, chuot phai, chon `SLSS: Open selected word in popup`.
 
 Neu popup khong hien nghia/phat am:
 

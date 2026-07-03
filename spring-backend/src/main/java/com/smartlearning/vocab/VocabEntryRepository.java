@@ -25,5 +25,12 @@ public interface VocabEntryRepository extends JpaRepository<VocabEntry, UUID> {
             Pageable pageable
     );
 
+    List<VocabEntry> findByUserIdAndNextReviewAtLessThanEqualAndStatusOrderByNextReviewAtAsc(
+            UUID userId,
+            OffsetDateTime dueAt,
+            VocabStatus status,
+            Pageable pageable
+    );
+
     boolean existsByUserIdAndTermIgnoreCase(UUID userId, String term);
 }

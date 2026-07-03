@@ -40,6 +40,9 @@ public class VocabEntry {
     @Column(name = "example_sentence", columnDefinition = "text")
     private String exampleSentence;
 
+    @Column(name = "collocation", columnDefinition = "text")
+    private String collocation;
+
     @Column(name = "part_of_speech", length = 80)
     private String partOfSpeech;
 
@@ -72,6 +75,9 @@ public class VocabEntry {
 
     @Column(name = "repetition_count", nullable = false)
     private Integer repetitionCount = 0;
+
+    @Column(name = "study_box", nullable = false)
+    private Integer studyBox = 1;
 
     @Column(name = "next_review_at", nullable = false)
     private OffsetDateTime nextReviewAt;
@@ -108,6 +114,9 @@ public class VocabEntry {
         }
         if (repetitionCount == null) {
             repetitionCount = 0;
+        }
+        if (studyBox == null) {
+            studyBox = 1;
         }
     }
 
@@ -166,6 +175,14 @@ public class VocabEntry {
 
     public void setExampleSentence(String exampleSentence) {
         this.exampleSentence = exampleSentence;
+    }
+
+    public String getCollocation() {
+        return collocation;
+    }
+
+    public void setCollocation(String collocation) {
+        this.collocation = collocation;
     }
 
     public String getPartOfSpeech() {
@@ -254,6 +271,14 @@ public class VocabEntry {
 
     public void setRepetitionCount(Integer repetitionCount) {
         this.repetitionCount = repetitionCount;
+    }
+
+    public Integer getStudyBox() {
+        return studyBox;
+    }
+
+    public void setStudyBox(Integer studyBox) {
+        this.studyBox = studyBox;
     }
 
     public OffsetDateTime getNextReviewAt() {

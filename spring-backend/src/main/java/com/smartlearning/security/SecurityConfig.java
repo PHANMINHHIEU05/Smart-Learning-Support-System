@@ -38,6 +38,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/health", "/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/logs").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/vocab/extension/exchange").permitAll()
+                        .requestMatchers("/api/v1/vocab/personal/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .httpBasic(AbstractHttpConfigurer::disable)

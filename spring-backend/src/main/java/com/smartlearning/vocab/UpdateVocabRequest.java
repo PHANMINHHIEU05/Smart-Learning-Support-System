@@ -15,6 +15,12 @@ public record UpdateVocabRequest(
         @JsonProperty("example_sentence")
         String exampleSentence,
 
+        String collocation,
+
+        @JsonProperty("part_of_speech")
+        @Size(max = 80)
+        String partOfSpeech,
+
         @JsonProperty("source_type")
         @Size(max = 40)
         String sourceType,

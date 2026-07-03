@@ -13,7 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "debug=false",
-        "app.cors.allowed-origins=http://localhost:3000"
+        "app.cors.allowed-origins=http://localhost:3000",
+        "app.cors.allowed-origin-patterns=moz-extension://*,chrome-extension://*"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -30,6 +31,17 @@ class CorsConfigIntegrationTest {
                         .header("Access-Control-Request-Headers", "authorization,content-type"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+    }
+
+    @Test
+    void allowFirefoxExtensionPreflightForPersonalVocabularyCapture() throws Exception {
+        mockMvc.perform(options("/api/v1/vocab/personal/capture")
+                        .header("Origin", "moz-extension://abc123")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "moz-extension://abc123"))
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 }

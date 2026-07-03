@@ -10,6 +10,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -102,6 +103,7 @@ public class VocabService {
                     entry.setTranslationVi(blankToNull(request.translationVi()));
                     entry.setDefinitionEn(blankToNull(request.definitionEn()));
                     entry.setExampleSentence(blankToNull(firstNonBlank(request.exampleSentence(), request.contextSentence())));
+                    entry.setCollocation(blankToNull(request.collocation()));
                     entry.setPartOfSpeech(blankToNull(request.partOfSpeech()));
                     entry.setPhonetic(blankToNull(request.phonetic()));
                     entry.setAudioUrl(blankToNull(request.audioUrl()));
@@ -112,6 +114,20 @@ public class VocabService {
                     entry.setStatus(VocabStatus.NOT_STARTED);
                     return VocabEntryResponse.from(repository.save(entry));
                 });
+    }
+
+    @Transactional
+    public VocabEntryResponse capturePersonal(UUID userId, VocabCaptureRequest request) {
+        VocabEntryResponse response = capture(userId, request);
+        VocabEntry entry = getOwnedEntry(userId, response.vocabId());
+        if (entry.getStatus() == VocabStatus.NOT_STARTED) {
+            entry.setStatus(VocabStatus.LEARNING);
+            entry.setNextReviewAt(startOfDay(OffsetDateTime.now()));
+        }
+        if (entry.getStudyBox() == null || entry.getStudyBox() < 1) {
+            entry.setStudyBox(1);
+        }
+        return VocabEntryResponse.from(repository.save(entry));
     }
 
     private void enrichMissingMetadata(VocabEntry entry, VocabCaptureRequest request) {
@@ -126,6 +142,9 @@ public class VocabService {
         }
         if (isBlank(entry.getExampleSentence())) {
             entry.setExampleSentence(blankToNull(firstNonBlank(request.exampleSentence(), request.contextSentence())));
+        }
+        if (isBlank(entry.getCollocation())) {
+            entry.setCollocation(blankToNull(request.collocation()));
         }
         if (isBlank(entry.getPartOfSpeech())) {
             entry.setPartOfSpeech(blankToNull(request.partOfSpeech()));
@@ -167,6 +186,20 @@ public class VocabService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<VocabEntryResponse> dueLearning(UUID userId, OffsetDateTime now, int limit) {
+        Pageable pageable = PageRequest.of(0, limit);
+        return repository.findByUserIdAndNextReviewAtLessThanEqualAndStatusOrderByNextReviewAtAsc(
+                        userId,
+                        now == null ? OffsetDateTime.now() : now,
+                        VocabStatus.LEARNING,
+                        pageable
+                )
+                .stream()
+                .map(VocabEntryResponse::from)
+                .toList();
+    }
+
     @Transactional
     public VocabEntryResponse update(UUID userId, UUID vocabId, UpdateVocabRequest request) {
         VocabEntry entry = getOwnedEntry(userId, vocabId);
@@ -184,6 +217,12 @@ public class VocabService {
         }
         if (request.exampleSentence() != null) {
             entry.setExampleSentence(request.exampleSentence());
+        }
+        if (request.collocation() != null) {
+            entry.setCollocation(request.collocation());
+        }
+        if (request.partOfSpeech() != null) {
+            entry.setPartOfSpeech(request.partOfSpeech());
         }
         if (request.sourceType() != null) {
             entry.setSourceType(request.sourceType());
@@ -206,6 +245,43 @@ public class VocabService {
         VocabEntry entry = getOwnedEntry(userId, vocabId);
         OffsetDateTime reviewedAt = request.reviewedAt() == null ? OffsetDateTime.now() : request.reviewedAt();
         applySrs(entry, request.quality(), reviewedAt);
+        return VocabEntryResponse.from(repository.save(entry));
+    }
+
+    @Transactional
+    public VocabEntryResponse applyQuizResult(UUID userId, UUID vocabId, QuizResultRequest request) {
+        VocabEntry entry = getOwnedEntry(userId, vocabId);
+        OffsetDateTime reviewedAt = request.reviewedAt() == null ? OffsetDateTime.now() : request.reviewedAt();
+        int currentBox = entry.getStudyBox() == null ? 1 : Math.max(1, Math.min(3, entry.getStudyBox()));
+        int nextInterval;
+
+        entry.setLastReviewedAt(reviewedAt);
+        if (Boolean.TRUE.equals(request.correct())) {
+            entry.setRepetitionCount((entry.getRepetitionCount() == null ? 0 : entry.getRepetitionCount()) + 1);
+            if (currentBox == 1) {
+                entry.setStudyBox(2);
+                entry.setStatus(VocabStatus.LEARNING);
+                nextInterval = 2;
+            } else if (currentBox == 2) {
+                entry.setStudyBox(3);
+                entry.setStatus(VocabStatus.LEARNING);
+                nextInterval = 5;
+            } else {
+                entry.setStudyBox(3);
+                entry.setStatus(VocabStatus.MASTERED);
+                nextInterval = 30;
+            }
+        } else {
+            entry.setStudyBox(1);
+            entry.setRepetitionCount(0);
+            entry.setStatus(VocabStatus.LEARNING);
+            entry.setEaseFactor(clampEase((entry.getEaseFactor() == null ? DEFAULT_EASE : entry.getEaseFactor())
+                    .subtract(BigDecimal.valueOf(0.10))).setScale(2, RoundingMode.HALF_UP));
+            nextInterval = 1;
+        }
+
+        entry.setIntervalDays(nextInterval);
+        entry.setNextReviewAt(startOfDay(reviewedAt.plusDays(nextInterval)));
         return VocabEntryResponse.from(repository.save(entry));
     }
 
@@ -297,6 +373,13 @@ public class VocabService {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static OffsetDateTime startOfDay(OffsetDateTime value) {
+        return value.withOffsetSameInstant(ZoneOffset.UTC)
+                .toLocalDate()
+                .atStartOfDay()
+                .atOffset(ZoneOffset.UTC);
     }
 
     private static boolean isBlank(String value) {

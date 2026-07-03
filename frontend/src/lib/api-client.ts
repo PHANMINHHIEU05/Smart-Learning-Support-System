@@ -20,6 +20,9 @@ const SPRING_API_PATH_PREFIXES = [
   "/api/v1/alerts",
 ];
 
+const PERSONAL_VOCAB_MODE =
+  process.env.NEXT_PUBLIC_PERSONAL_VOCAB_MODE !== "false";
+
 const TOKEN_CACHE_MS = 15_000;
 let cachedToken = "";
 let cachedTokenAt = 0;
@@ -90,22 +93,42 @@ export function getApiBaseForPath(path: string): string {
     : LEGACY_API_BASE;
 }
 
+function isVocabPath(path: string): boolean {
+  return matchesApiPrefix(path, "/api/v1/vocab");
+}
+
+function isPersonalVocabPath(path: string): boolean {
+  return matchesApiPrefix(path, "/api/v1/vocab/personal");
+}
+
+function toPersonalVocabPath(path: string): string {
+  if (!PERSONAL_VOCAB_MODE || !isVocabPath(path) || isPersonalVocabPath(path)) {
+    return path;
+  }
+  if (matchesApiPrefix(path, "/api/v1/vocab/extension")) {
+    return path;
+  }
+  return path.replace("/api/v1/vocab", "/api/v1/vocab/personal");
+}
+
 export async function apiFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
+  const requestPath = toPersonalVocabPath(path);
   const token = await getApiAccessToken();
-  const apiBase = getApiBaseForPath(path);
+  const apiBase = getApiBaseForPath(requestPath);
   const usesSpringApi = apiBase === SPRING_API_BASE;
+  const usesPublicPersonalVocab = isPersonalVocabPath(requestPath);
 
-  if (usesSpringApi && !token) {
+  if (usesSpringApi && !usesPublicPersonalVocab && !token) {
     throw new ApiError(
       401,
       "Frontend khong lay duoc Supabase access token. Hay kiem tra NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY va dang nhap lai.",
     );
   }
 
-  const res = await fetch(`${apiBase}${path}`, {
+  const res = await fetch(`${apiBase}${requestPath}`, {
     ...options,
     credentials: "include",
     headers: {

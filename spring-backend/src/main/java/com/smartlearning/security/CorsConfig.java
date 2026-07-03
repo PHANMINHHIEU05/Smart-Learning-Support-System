@@ -17,10 +17,11 @@ public class CorsConfig {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins
+            @Value("${app.cors.allowed-origins:http://localhost:3000}") String allowedOrigins,
+            @Value("${app.cors.allowed-origin-patterns:moz-extension://*,chrome-extension://*}") String allowedOriginPatterns
     ) {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(parseCsv(allowedOrigins));
+        configuration.setAllowedOriginPatterns(concat(parseCsv(allowedOrigins), parseCsv(allowedOriginPatterns)));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 HttpHeaders.AUTHORIZATION,
@@ -41,5 +42,9 @@ public class CorsConfig {
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
                 .toList();
+    }
+
+    private static List<String> concat(List<String> first, List<String> second) {
+        return java.util.stream.Stream.concat(first.stream(), second.stream()).toList();
     }
 }

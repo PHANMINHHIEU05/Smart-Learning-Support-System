@@ -22,6 +22,9 @@ public record VocabCaptureRequest(
         @Size(max = 1000)
         String exampleSentence,
 
+        @Size(max = 1000)
+        String collocation,
+
         @JsonProperty("part_of_speech")
         @Size(max = 80)
         String partOfSpeech,

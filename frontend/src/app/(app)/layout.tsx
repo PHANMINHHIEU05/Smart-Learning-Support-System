@@ -20,10 +20,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !session) {
+    if (!loading && !session && !pathname.startsWith("/vocab")) {
       router.replace("/login");
     }
-  }, [session, loading, router]);
+  }, [session, loading, pathname, router]);
 
   if (loading) {
     return (
@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!session) return null;
+  if (!session && !pathname.startsWith("/vocab")) return null;
 
   return (
     <div className="fg-shell min-h-screen px-3 pb-6 pt-4 md:px-5 md:pt-6">
@@ -84,10 +84,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="border-t border-indigo-500/40 p-4">
-            <p className="truncate text-xs fg-subtle">{session.user.email}</p>
-            <button onClick={signOut} className="btn-danger mt-3 w-full">
-              Sign Out
-            </button>
+            {session ? (
+              <>
+                <p className="truncate text-xs fg-subtle">{session.user.email}</p>
+                <button onClick={signOut} className="btn-danger mt-3 w-full">
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="truncate text-xs fg-subtle">Personal local mode</p>
+                <Link href="/login" className="btn-primary mt-3 flex w-full justify-center">
+                  Sign In
+                </Link>
+              </>
+            )}
           </div>
         </aside>
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { apiFetch, SPRING_API_BASE } from "@/lib/api-client";
+import { apiFetch } from "@/lib/api-client";
 import type { VocabEntry, VocabStatus } from "@/types/api";
 
 const STATUS_TABS: VocabStatus[] = [
@@ -13,12 +13,6 @@ const STATUS_TABS: VocabStatus[] = [
   "mastered",
   "archived",
 ];
-
-interface ExtensionPairingCodeResponse {
-  pairing_code: string;
-  expires_at: string;
-  ttl_seconds: number;
-}
 
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";
@@ -35,18 +29,17 @@ function statusLabel(value: VocabStatus): string {
 }
 
 export default function VocabPage() {
-  const [activeStatus, setActiveStatus] = useState<VocabStatus>("not_started");
+  const [activeStatus, setActiveStatus] = useState<VocabStatus>("learning");
   const [entries, setEntries] = useState<VocabEntry[]>([]);
   const [dueEntries, setDueEntries] = useState<VocabEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [manualTerm, setManualTerm] = useState("");
   const [manualMeaning, setManualMeaning] = useState("");
+  const [manualPartOfSpeech, setManualPartOfSpeech] = useState("");
+  const [manualCollocation, setManualCollocation] = useState("");
+  const [manualContext, setManualContext] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [pairingCode, setPairingCode] = useState<string | null>(null);
-  const [pairingExpiresAt, setPairingExpiresAt] = useState<string | null>(null);
-  const [pairingStatus, setPairingStatus] = useState<string | null>(null);
-  const [pairingLoading, setPairingLoading] = useState(false);
 
   const dueCount = dueEntries.length;
   const reviewLoad = useMemo(
@@ -87,48 +80,31 @@ export default function VocabPage() {
         body: JSON.stringify({
           term: manualTerm.trim(),
           ...(manualMeaning.trim() ? { meaning: manualMeaning.trim() } : {}),
+          ...(manualPartOfSpeech.trim()
+            ? { part_of_speech: manualPartOfSpeech.trim() }
+            : {}),
+          ...(manualCollocation.trim()
+            ? { collocation: manualCollocation.trim() }
+            : {}),
+          ...(manualContext.trim()
+            ? {
+                example_sentence: manualContext.trim(),
+                context_sentence: manualContext.trim(),
+              }
+            : {}),
           page_title: "Manual web app entry",
         }),
       });
       setManualTerm("");
       setManualMeaning("");
+      setManualPartOfSpeech("");
+      setManualCollocation("");
+      setManualContext("");
       fetchEntries(activeStatus);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to save vocabulary");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const createExtensionPairingCode = async () => {
-    setPairingStatus(null);
-    setPairingLoading(true);
-    try {
-      const response = await apiFetch<ExtensionPairingCodeResponse>(
-        "/api/v1/vocab/extension/pairing-codes",
-        { method: "POST" },
-      );
-      setPairingCode(response.pairing_code);
-      setPairingExpiresAt(response.expires_at);
-      setPairingStatus(
-        `Enter this code in Firefox within ${Math.round(response.ttl_seconds / 60)} minutes.`,
-      );
-    } catch (e: unknown) {
-      setPairingStatus(
-        e instanceof Error ? e.message : "Could not create pairing code.",
-      );
-    } finally {
-      setPairingLoading(false);
-    }
-  };
-
-  const copyPairingCode = async () => {
-    if (!pairingCode) return;
-    try {
-      await navigator.clipboard.writeText(pairingCode);
-      setPairingStatus("Pairing code copied.");
-    } catch {
-      setPairingStatus("Could not copy automatically.");
     }
   };
 
@@ -145,12 +121,11 @@ export default function VocabPage() {
         <div className="flex flex-wrap gap-2">
           <span className="fg-chip">{dueCount} due</span>
           <span className="fg-chip">{reviewLoad} active</span>
-          <Link
-            href="/vocab/review"
-            className="btn-primary"
-            data-testid="vocab-start-review-link"
-          >
-            Review Due Words
+          <Link href="/vocab/flashcards" className="btn-primary">
+            Flashcards
+          </Link>
+          <Link href="/vocab/quiz" className="btn-primary">
+            Quiz
           </Link>
         </div>
       </div>
@@ -223,12 +198,18 @@ export default function VocabPage() {
                             {entry.definition_en}
                           </p>
                         )}
+                        {entry.collocation && (
+                          <p className="mt-2 text-sm font-semibold text-cyan-100">
+                            {entry.collocation}
+                          </p>
+                        )}
                         {entry.example_sentence && (
                           <p className="mt-2 text-xs text-slate-400">
                             {entry.example_sentence}
                           </p>
                         )}
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+                          <span>Box: {entry.study_box}</span>
                           <span>Next: {formatDateTime(entry.next_review_at)}</span>
                           <span>Interval: {entry.interval_days}d</span>
                           <span>Reps: {entry.repetition_count}</span>
@@ -284,40 +265,9 @@ export default function VocabPage() {
               Firefox Extension
             </h2>
             <p className="mt-2 text-sm fg-muted-text">
-              Spring API: {SPRING_API_BASE}
+              The extension saves words directly into this personal vocabulary
+              library. No pairing code or login is required for extension saves.
             </p>
-            <button
-              type="button"
-              onClick={createExtensionPairingCode}
-              disabled={pairingLoading}
-              className="btn-primary mt-4 w-full"
-              data-testid="vocab-create-extension-pairing-code-button"
-            >
-              {pairingLoading ? "Creating..." : "Create Pairing Code"}
-            </button>
-            {pairingCode && (
-              <div className="mt-4 rounded-lg border border-cyan-400/35 bg-cyan-400/10 px-3 py-3">
-                <p className="text-xs font-semibold uppercase text-cyan-200">
-                  Pairing Code
-                </p>
-                <button
-                  type="button"
-                  onClick={copyPairingCode}
-                  className="mt-2 w-full rounded-lg border border-cyan-300/40 bg-slate-950/50 px-3 py-2 text-center text-2xl font-black tracking-[0.16em] text-cyan-100"
-                  data-testid="vocab-copy-extension-pairing-code-button"
-                >
-                  {pairingCode}
-                </button>
-                {pairingExpiresAt && (
-                  <p className="mt-2 text-xs text-slate-300">
-                    Expires: {formatDateTime(pairingExpiresAt)}
-                  </p>
-                )}
-              </div>
-            )}
-            {pairingStatus && (
-              <p className="mt-3 text-xs text-cyan-100">{pairingStatus}</p>
-            )}
           </section>
 
           <section className="fg-card p-4">
@@ -339,6 +289,34 @@ export default function VocabPage() {
                   onChange={(e) => setManualMeaning(e.target.value)}
                   className="field-textarea"
                   rows={3}
+                />
+              </div>
+              <div>
+                <label className="field-label">Part of speech</label>
+                <input
+                  value={manualPartOfSpeech}
+                  onChange={(e) => setManualPartOfSpeech(e.target.value)}
+                  className="field-input"
+                  placeholder="noun, verb, adjective..."
+                />
+              </div>
+              <div>
+                <label className="field-label">Collocation</label>
+                <input
+                  value={manualCollocation}
+                  onChange={(e) => setManualCollocation(e.target.value)}
+                  className="field-input"
+                  placeholder="approve a proposal"
+                />
+              </div>
+              <div>
+                <label className="field-label">TOEIC context</label>
+                <textarea
+                  value={manualContext}
+                  onChange={(e) => setManualContext(e.target.value)}
+                  className="field-textarea"
+                  rows={3}
+                  placeholder="Copy the sentence where you met this word"
                 />
               </div>
               <button disabled={saving} className="btn-primary w-full">
