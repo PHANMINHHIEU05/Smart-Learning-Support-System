@@ -230,9 +230,11 @@ class VocabControllerIntegrationTest {
                                 {
                                   "term": "consequence"
                                 }
-                                """))
+                """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.already_saved").value(true));
+                .andExpect(jsonPath("$.already_saved").value(true))
+                .andExpect(jsonPath("$.saved_vocab_id").value(vocabId))
+                .andExpect(jsonPath("$.saved_status").value("not_started"));
 
         mockMvc.perform(post("/api/v1/vocab/capture")
                         .with(userJwt(userId))

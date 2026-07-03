@@ -14,9 +14,14 @@ class VocabServiceLookupTest {
     @Test
     void combinesWorkerEnrichmentWithUserSavedState() {
         UUID userId = UUID.randomUUID();
+        UUID vocabId = UUID.randomUUID();
         VocabEntryRepository repository = mock(VocabEntryRepository.class);
         VocabLookupCacheService cacheService = mock(VocabLookupCacheService.class);
-        when(repository.existsByUserIdAndTermIgnoreCase(userId, "Consequence")).thenReturn(true);
+        VocabEntry savedEntry = mock(VocabEntry.class);
+        when(savedEntry.getVocabId()).thenReturn(vocabId);
+        when(savedEntry.getStatus()).thenReturn(VocabStatus.LEARNING);
+        when(repository.findByUserIdAndTermIgnoreCase(userId, "consequence"))
+                .thenReturn(Optional.of(savedEntry));
         when(cacheService.resolve("Consequence"))
                 .thenReturn(Optional.of(new VocabEnrichmentResponse(
                         "Consequence",
@@ -49,5 +54,7 @@ class VocabServiceLookupTest {
         assertThat(response.definitionEn()).isEqualTo("a result of an action");
         assertThat(response.partOfSpeech()).isEqualTo("noun");
         assertThat(response.alreadySaved()).isTrue();
+        assertThat(response.savedVocabId()).isEqualTo(vocabId);
+        assertThat(response.savedStatus()).isEqualTo(VocabStatus.LEARNING);
     }
 }

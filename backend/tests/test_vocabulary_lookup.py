@@ -8,6 +8,8 @@ import pytest
 from fastapi import HTTPException
 
 os.environ["DEBUG"] = "false"
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret")
 
 from app.core.config import settings
 from app.routers.internal_vocabulary import require_internal_token
@@ -19,6 +21,7 @@ from app.services.vocabulary_lookup_service import lookup_vocabulary
 async def test_lookup_combines_dictionary_and_vietnamese_translation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "MERRIAM_WEBSTER_LEARNERS_API_KEY", "")
     monkeypatch.setattr(settings, "DICTIONARY_API_BASE_URL", "https://dictionary.test")
     monkeypatch.setattr(settings, "TRANSLATION_API_BASE_URL", "https://translation.test")
 
@@ -82,6 +85,7 @@ async def test_lookup_combines_dictionary_and_vietnamese_translation(
 async def test_lookup_uses_context_when_providers_are_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "MERRIAM_WEBSTER_LEARNERS_API_KEY", "")
     monkeypatch.setattr(settings, "DICTIONARY_API_BASE_URL", "https://dictionary.test")
     monkeypatch.setattr(settings, "TRANSLATION_API_BASE_URL", "https://translation.test")
 
@@ -102,6 +106,72 @@ async def test_lookup_uses_context_when_providers_are_unavailable(
     assert result.example_sentence == "She remained resilient under pressure."
     assert result.dictionary_provider is None
     assert result.translation_provider is None
+
+
+@pytest.mark.asyncio
+async def test_lookup_prefers_merriam_webster_learners_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "MERRIAM_WEBSTER_LEARNERS_API_KEY", "mw-key")
+    monkeypatch.setattr(
+        settings,
+        "MERRIAM_WEBSTER_LEARNERS_API_BASE_URL",
+        "https://merriam.test/api/v3/references/learners/json",
+    )
+    monkeypatch.setattr(settings, "DICTIONARY_API_BASE_URL", "https://dictionary.test")
+    monkeypatch.setattr(settings, "TRANSLATION_API_BASE_URL", "https://translation.test")
+
+    requested_hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested_hosts.append(request.url.host or "")
+        if request.url.host == "merriam.test":
+            assert request.url.params["key"] == "mw-key"
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "hwi": {
+                            "hw": "resilient",
+                            "prs": [
+                                {
+                                    "ipa": "rɪˈzɪljənt",
+                                    "sound": {"audio": "resil01"},
+                                }
+                            ],
+                        },
+                        "fl": "adjective",
+                        "shortdef": ["able to become strong, healthy, or successful again"],
+                    }
+                ],
+            )
+        if request.url.host == "translation.test":
+            return httpx.Response(
+                200,
+                json={"responseData": {"translatedText": "kiên cường"}},
+            )
+        return httpx.Response(500)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await lookup_vocabulary(
+            VocabularyLookupRequest(
+                term="Resilient",
+                context_sentence="She remained resilient under pressure.",
+            ),
+            client=client,
+        )
+
+    assert "dictionary.test" not in requested_hosts
+    assert result.definition_en == "able to become strong, healthy, or successful again"
+    assert result.translation_vi == "kiên cường"
+    assert result.meaning == "kiên cường"
+    assert result.part_of_speech == "adjective"
+    assert result.phonetic == "rɪˈzɪljənt"
+    assert result.audio_url == (
+        "https://media.merriam-webster.com/audio/prons/en/us/mp3/r/resil01.mp3"
+    )
+    assert result.dictionary_provider == "merriam-webster-learners"
+    assert result.translation_provider == "mymemory"
 
 
 def test_internal_token_guard_accepts_configured_token(

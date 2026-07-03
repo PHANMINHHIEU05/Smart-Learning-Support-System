@@ -24,6 +24,68 @@ def _normalize_audio_url(value: Any) -> str | None:
     return audio_url
 
 
+def _merriam_audio_url(audio: Any) -> str | None:
+    audio_name = _clean_text(audio)
+    if not audio_name:
+        return None
+
+    first = audio_name[0].lower()
+    if audio_name.startswith("bix"):
+        subdirectory = "bix"
+    elif audio_name.startswith("gg"):
+        subdirectory = "gg"
+    elif not first.isalpha():
+        subdirectory = "number"
+    else:
+        subdirectory = first
+
+    return (
+        "https://media.merriam-webster.com/audio/prons/en/us/mp3/"
+        f"{subdirectory}/{audio_name}.mp3"
+    )
+
+
+def _first_merriam_webster_result(payload: Any) -> dict[str, str | None]:
+    if not isinstance(payload, list):
+        return {}
+
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+
+        definitions = [
+            definition
+            for definition in entry.get("shortdef") or []
+            if _clean_text(definition)
+        ]
+        definition_en = _clean_text(definitions[0]) if definitions else None
+        if not definition_en:
+            continue
+
+        headword = entry.get("hwi") if isinstance(entry.get("hwi"), dict) else {}
+        phonetic = None
+        audio_url = None
+        for pronunciation in headword.get("prs") or []:
+            if not isinstance(pronunciation, dict):
+                continue
+            phonetic = phonetic or _clean_text(pronunciation.get("ipa")) or _clean_text(pronunciation.get("mw"))
+            sound = pronunciation.get("sound")
+            if isinstance(sound, dict):
+                audio_url = audio_url or _merriam_audio_url(sound.get("audio"))
+            if phonetic and audio_url:
+                break
+
+        return {
+            "definition_en": definition_en,
+            "example_sentence": None,
+            "part_of_speech": _clean_text(entry.get("fl")),
+            "phonetic": phonetic,
+            "audio_url": audio_url,
+        }
+
+    return {}
+
+
 def _first_dictionary_result(payload: Any) -> dict[str, str | None]:
     if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
         return {}
@@ -91,15 +153,33 @@ async def lookup_vocabulary(
     term = _clean_text(request.term) or ""
     normalized_term = term.lower()
     dictionary_data: dict[str, str | None] = {}
+    dictionary_provider = None
     translation_vi = None
 
     async with _client_scope(client) as http_client:
+        merriam_webster_key = _clean_text(settings.MERRIAM_WEBSTER_LEARNERS_API_KEY)
+        if merriam_webster_key:
+            try:
+                merriam_response = await http_client.get(
+                    f"{settings.MERRIAM_WEBSTER_LEARNERS_API_BASE_URL.rstrip('/')}/{quote(normalized_term, safe='')}",
+                    params={"key": merriam_webster_key},
+                )
+                if merriam_response.status_code == 200:
+                    dictionary_data = _first_merriam_webster_result(merriam_response.json())
+                    if dictionary_data:
+                        dictionary_provider = "merriam-webster-learners"
+            except (httpx.HTTPError, ValueError):
+                dictionary_data = {}
+
         try:
-            dictionary_response = await http_client.get(
-                f"{settings.DICTIONARY_API_BASE_URL.rstrip('/')}/api/v2/entries/en/{quote(normalized_term, safe='')}"
-            )
-            if dictionary_response.status_code == 200:
-                dictionary_data = _first_dictionary_result(dictionary_response.json())
+            if not dictionary_data:
+                dictionary_response = await http_client.get(
+                    f"{settings.DICTIONARY_API_BASE_URL.rstrip('/')}/api/v2/entries/en/{quote(normalized_term, safe='')}"
+                )
+                if dictionary_response.status_code == 200:
+                    dictionary_data = _first_dictionary_result(dictionary_response.json())
+                    if dictionary_data:
+                        dictionary_provider = "dictionaryapi.dev"
         except (httpx.HTTPError, ValueError):
             dictionary_data = {}
 
@@ -126,6 +206,6 @@ async def lookup_vocabulary(
         part_of_speech=dictionary_data.get("part_of_speech"),
         phonetic=dictionary_data.get("phonetic"),
         audio_url=dictionary_data.get("audio_url"),
-        dictionary_provider="dictionaryapi.dev" if dictionary_data else None,
+        dictionary_provider=dictionary_provider,
         translation_provider="mymemory" if translation_vi else None,
     )

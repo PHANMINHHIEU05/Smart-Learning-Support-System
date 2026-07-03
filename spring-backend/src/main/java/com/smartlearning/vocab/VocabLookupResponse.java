@@ -2,6 +2,8 @@ package com.smartlearning.vocab;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.UUID;
+
 public record VocabLookupResponse(
         String term,
 
@@ -40,6 +42,12 @@ public record VocabLookupResponse(
         String sourceRef,
 
         @JsonProperty("already_saved")
-        boolean alreadySaved
+        boolean alreadySaved,
+
+        @JsonProperty("saved_vocab_id")
+        UUID savedVocabId,
+
+        @JsonProperty("saved_status")
+        VocabStatus savedStatus
 ) {
 }

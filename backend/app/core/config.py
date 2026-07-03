@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     AI_WORKER_INTERNAL_TOKEN: str = "dev-internal-token"
 
     # ── Vocabulary Providers ──
+    MERRIAM_WEBSTER_LEARNERS_API_KEY: str = ""
+    MERRIAM_WEBSTER_LEARNERS_API_BASE_URL: str = "https://www.dictionaryapi.com/api/v3/references/learners/json"
     DICTIONARY_API_BASE_URL: str = "https://api.dictionaryapi.dev"
     TRANSLATION_API_BASE_URL: str = "https://api.mymemory.translated.net"
     VOCABULARY_HTTP_TIMEOUT_SECONDS: float = 6.0

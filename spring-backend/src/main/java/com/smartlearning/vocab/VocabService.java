@@ -52,11 +52,13 @@ public class VocabService {
     public VocabLookupResponse lookup(UUID userId, VocabLookupRequest request) {
         String term = normalizeTerm(request.term());
         ensureTermNotBlank(term);
-        boolean alreadySaved = repository.existsByUserIdAndTermIgnoreCase(userId, term);
         VocabEnrichmentResponse enrichment = lookupCacheService.resolve(term).orElse(null);
         String normalizedTerm = enrichment == null
                 ? term
                 : firstNonBlank(enrichment.normalizedTerm(), term);
+        VocabEntry savedEntry = repository.findByUserIdAndTermIgnoreCase(userId, normalizedTerm)
+                .orElseGet(() -> repository.findByUserIdAndTermIgnoreCase(userId, term).orElse(null));
+        boolean alreadySaved = savedEntry != null;
         String exampleSentence = enrichment == null
                 ? firstNonBlank(request.contextSentence(), term)
                 : firstNonBlank(enrichment.exampleSentence(), request.contextSentence());
@@ -76,7 +78,9 @@ public class VocabService {
                 enrichment == null ? null : enrichment.translationProvider(),
                 "firefox_extension",
                 sourceRef,
-                alreadySaved
+                alreadySaved,
+                savedEntry == null ? null : savedEntry.getVocabId(),
+                savedEntry == null ? null : savedEntry.getStatus()
         );
     }
 

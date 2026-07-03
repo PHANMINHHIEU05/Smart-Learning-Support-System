@@ -30,6 +30,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .eyebrow {
@@ -47,6 +48,30 @@ h1 {
   font-size: 22px;
 }
 
+.connection-state {
+  min-width: 86px;
+  margin: 0 0 0 auto;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 8px;
+  text-align: center;
+}
+
+.connection-state.is-connected {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(20, 184, 166, 0.16);
+  color: #ccfbf1;
+}
+
+.connection-state.is-disconnected {
+  border-color: rgba(251, 113, 133, 0.45);
+  background: rgba(244, 63, 94, 0.12);
+  color: #ffe4e6;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -55,6 +80,18 @@ h1 {
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.82);
   padding: 12px;
+}
+
+.connected-panel {
+  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(20, 83, 45, 0.2);
+}
+
+.panel-title {
+  margin: 0 0 4px;
+  color: #ecfeff;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 label {
@@ -88,10 +125,83 @@ textarea:focus {
   outline: none;
 }
 
+.term-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
 .actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.lookup-summary {
+  border: 1px solid rgba(34, 211, 238, 0.26);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.42);
+  padding: 10px;
+}
+
+.summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.summary-term {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.summary-phonetic {
+  min-height: 15px;
+  margin: 3px 0 0;
+  color: #bae6fd;
+  font-size: 12px;
+}
+
+.saved-state {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  color: #dbeafe;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.saved-state.is-new {
+  background: rgba(34, 211, 238, 0.16);
+  color: #cffafe;
+}
+
+.saved-state.is-saved {
+  background: rgba(20, 184, 166, 0.18);
+  color: #ccfbf1;
+}
+
+.translation-result {
+  margin-top: 10px;
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.definition-result {
+  margin-top: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .lexical-details {
@@ -139,6 +249,12 @@ textarea:focus {
   padding: 3px 8px;
 }
 
+.term-audio-button {
+  min-width: 72px;
+  min-height: 36px;
+  margin-left: 0;
+}
+
 button {
   min-height: 34px;
   border: 0;
@@ -168,6 +284,12 @@ button:disabled {
   border: 1px solid rgba(125, 211, 252, 0.32);
   background: rgba(34, 211, 238, 0.12);
   color: #cffafe;
+}
+
+.danger-button {
+  border: 1px solid rgba(251, 113, 133, 0.38);
+  background: rgba(244, 63, 94, 0.15);
+  color: #ffe4e6;
 }
 
 .status {

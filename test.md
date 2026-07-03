@@ -1,75 +1,45 @@
 Terminal 1 - Spring Boot main backend:
 
+```bash
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/spring-backend
+set -a
+source ./.env
+set +a
+echo "Spring DB URL: $SPRING_DATASOURCE_URL"
+mvn spring-boot:run
+```
 
-# Spring Boot KHONG tu doc file .env.
-# Neu ban da tao spring-backend/.env thi phai source no vao terminal truoc khi chay Maven.
-# Khong paste secret len chat.
-#
-# Lay Supabase DB host/password trong:
-# Supabase Dashboard -> Project Settings -> Database -> Connection string -> JDBC
-#
-# File .env nen co dang:
-# SPRING_DATASOURCE_URL=jdbc:postgresql://db.xxxxxxxxxxxxx.supabase.co:5432/postgres
-# SPRING_DATASOURCE_USERNAME=postgres
-# SPRING_DATASOURCE_PASSWORD=mat_khau_database_that
-# APP_SECURITY_JWT_SECRET=jwt_secret_that
-# APP_SECURITY_JWT_ISSUER_URI=
-# APP_SECURITY_JWT_JWK_SET_URI=
-# SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-# SUPABASE_ANON_KEY=anon_key_that
-# APP_INTERNAL_SERVICE_TOKEN=dev-internal-token
-# AI_WORKER_BASE_URL=http://localhost:8000
-# AI_WORKER_INTERNAL_TOKEN=dev-internal-token
-#
-# Neu password co ky tu dac biet, boc gia tri bang dau nhay don trong .env.
-# Chuoi `xxxxxxxxxxxxx` trong vi du van la placeholder.
-# Ban phai thay no bang Project Ref that cua Supabase, vi du `db.abcdefghijklmnop.supabase.co`.
-# Neu copy tu FastAPI DATABASE_URL:
-# - `%40` trong URL nghia la ky tu `@` trong password that.
-# - Spring dung password rieng trong SPRING_DATASOURCE_PASSWORD, nen dien password da decode.
-# - Vi du: URL co `myPass%40` thi Spring password la `myPass@`.
-
-if [[ -f .env ]]; then
-  set -a
-  source .env
-  set +a
-else
-  echo "Chua thay spring-backend/.env. Hay tao file .env hoac export bien moi truong thu cong."
-fi
-
-if [[ -z "$SPRING_DATASOURCE_URL" || "$SPRING_DATASOURCE_URL" == *"<supabase-host>"* || "$SPRING_DATASOURCE_PASSWORD" == *"<supabase-db-password>"* ]]; then
-  echo "Spring chua nhan duoc Supabase config that."
-  echo "Kiem tra spring-backend/.env: SPRING_DATASOURCE_URL va SPRING_DATASOURCE_PASSWORD phai la gia tri that."
-else
-  mvn spring-boot:run
-fi
+Nếu dùng Supabase pooler port `6543`, Spring đã tắt PostgreSQL prepared statements qua Hikari `prepareThreshold=0`.
 
 Terminal 2 - FastAPI AI worker:
 
+```bash
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/backend
-
-# Venv FastAPI da co san o root project.
-# Dung .venv310 vi no la Python 3.10; KHONG dung .venv vi no la Python 3.14.
 source ../.venv310/bin/activate
-
-# Chi chay dong nay khi bi loi thieu package.
-# python -m pip install -r requirements.txt
-
 export AI_WORKER_INTERNAL_TOKEN='dev-internal-token'
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+De nguon tu dien/phat am chuan hon cho hoc tieng Anh:
+
+- Dang ky API key tai Merriam-Webster Developer Center.
+- Dien vao `backend/.env`:
+  `MERRIAM_WEBSTER_LEARNERS_API_KEY=key_cua_ban`
+- Restart FastAPI.
+- Khi co key, FastAPI uu tien Merriam-Webster Learner's Dictionary cho definition, part of speech, phonetic va audio.
+- Neu chua co key, he thong van fallback sang Free Dictionary API va MyMemory.
 
 Terminal 3 - Frontend:
 
+```bash
 cd /home/hiubeo/Documents/code/Smart-Learning-Support-System/frontend
-
-# Frontend can 2 bien Supabase public de lay access token dang nhap.
-# Dien cung project voi Spring/FastAPI, khong dung placeholder.
-# export NEXT_PUBLIC_SUPABASE_URL='https://xxxxxxxxxxxxx.supabase.co'
-# export NEXT_PUBLIC_SUPABASE_ANON_KEY='anon_key_that'
+set -a
+source ./.env.local
+set +a
 export NEXT_PUBLIC_API_URL='http://localhost:8000'
 export NEXT_PUBLIC_SPRING_API_URL='http://localhost:8080'
 npm run dev
+```
 
 Terminal 4, chỉ chạy một lần nếu monitoring chưa cài đủ:
 
@@ -85,16 +55,48 @@ Sau khi chạy đủ:
 - Vocabulary page: http://localhost:3000/vocab
 - Review page: http://localhost:3000/vocab/review
 
-Firefox extension:
+Firefox extension local-only:
 
-1. Mo Firefox: about:debugging#/runtime/this-firefox
-2. Bam Load Temporary Add-on
-3. Chon file:
+1. Mo Firefox.
+2. Nhap vao thanh dia chi:
+   `about:debugging#/runtime/this-firefox`
+3. Bam `Load Temporary Add-on...`.
+4. Chon file:
    /home/hiubeo/Documents/code/Smart-Learning-Support-System/firefox-extension/vocab-lookup/manifest.json
-4. Vao http://localhost:3000/vocab
-5. Bam Create Pairing Code
-6. Mo popup extension, nhap pairing code, bam Pair
-7. Chon tu tieng Anh tren web bat ky, bam Lookup roi Save Word
+5. Neu Firefox hien icon extension tren toolbar, bam icon do. Neu chua thay, bam nut Extensions tren toolbar roi pin extension.
+6. Sau khi load/reload extension, refresh lai trang web dang muon boi den tu.
+7. Mo mot trang web bat ky co tieng Anh.
+8. Boi den mot tu tieng Anh, bam icon extension.
+9. Popup se tu hien nghia tieng Viet, phien am, dinh nghia tieng Anh va nut `Listen` phat am, khong can login/pair.
+10. Nut `Listen` nam ngay canh o `Selected word`, bam la nghe phat am ngay ca khi chua luu tu.
+11. Bam `Save Word` de luu local vao Firefox extension storage, khong can tai khoan/login.
+12. Cach nhanh hon: boi den tu, chuot phai, chon `SLSS: Save selected word locally`.
+13. Neu muon sua truoc khi luu: boi den tu, chuot phai, chon `SLSS: Open selected word in popup`.
+
+Neu popup khong hien nghia/phat am:
+
+- Reload temporary add-on trong `about:debugging#/runtime/this-firefox`.
+- Refresh lai trang web dang boi den tu, roi boi den lai.
+- Thu tren trang web binh thuong, khong thu tren `about:*`, trang extension noi bo, PDF viewer, hoac trang dac biet cua Firefox.
+- Thu tu pho bien nhu `hello`, `result`, `consequence`, `resilient` de kiem tra audio.
+- Extension co fallback truc tiep sang Free Dictionary API va MyMemory; neu backend AI loi tam thoi thi popup van co the hien nghia/phien am.
+
+Luu y: extension dang la Temporary Add-on, nen moi lan tat/mo lai Firefox co the phai load lai `manifest.json`.
+
+Dong goi Firefox extension local:
+
+```bash
+cd /home/hiubeo/Documents/code/Smart-Learning-Support-System
+bash firefox-extension/vocab-lookup/package-firefox-extension.sh
+```
+
+File tao ra:
+
+```text
+/home/hiubeo/Documents/code/Smart-Learning-Support-System/dist/firefox/slss-vocabulary-lookup-0.1.0.xpi
+```
+
+Luu y: file `.xpi` local nay de test/dev. Muon cai nhu extension chinh thuc tren Firefox ban thuong thi can ky extension qua Mozilla.
 
 Neu bi loi "AI processing: No recent AI signal":
 
