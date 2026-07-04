@@ -14,6 +14,15 @@ const STATUS_TABS: VocabStatus[] = [
   "archived",
 ];
 
+const STATUS_LABELS: Record<VocabStatus, string> = {
+  not_started: "Not Started",
+  learning: "Learning",
+  fuzzy: "Fuzzy",
+  remembered: "Remembered",
+  mastered: "Mastered",
+  archived: "Archived",
+};
+
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";
   return new Date(value).toLocaleString(undefined, {
@@ -25,11 +34,11 @@ function formatDateTime(value: string | null): string {
 }
 
 function statusLabel(value: VocabStatus): string {
-  return value.replace("_", " ");
+  return STATUS_LABELS[value];
 }
 
 export default function VocabPage() {
-  const [activeStatus, setActiveStatus] = useState<VocabStatus>("learning");
+  const [activeStatus, setActiveStatus] = useState<VocabStatus>("not_started");
   const [entries, setEntries] = useState<VocabEntry[]>([]);
   const [dueEntries, setDueEntries] = useState<VocabEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,7 +219,9 @@ export default function VocabPage() {
                         )}
                         <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
                           <span>Box: {entry.study_box}</span>
-                          <span>Next: {formatDateTime(entry.next_review_at)}</span>
+                          <span>
+                            Next: {formatDateTime(entry.next_review_at)}
+                          </span>
                           <span>Interval: {entry.interval_days}d</span>
                           <span>Reps: {entry.repetition_count}</span>
                         </div>
@@ -219,7 +230,9 @@ export default function VocabPage() {
                       {entry.audio_url && (
                         <button
                           type="button"
-                          onClick={() => window.open(entry.audio_url!, "_blank")}
+                          onClick={() =>
+                            window.open(entry.audio_url!, "_blank")
+                          }
                           className="rounded-lg border border-cyan-400/40 bg-cyan-400/15 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/25"
                           data-testid={`vocab-pronounce-${entry.vocab_id}`}
                         >
